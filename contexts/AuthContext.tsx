@@ -55,7 +55,15 @@ async function loginViaAppsScript(email: string, password: string): Promise<{ su
 
   try {
     const res = await fetch(url, { redirect: 'follow', signal: controller.signal });
-    const data = await res.json();
+    const text = await res.text();
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.error('[Auth] Client fallback returned non-JSON');
+      return { success: false, error: 'Lỗi phản hồi từ hệ thống' };
+    }
 
     if (data.success && data.user) {
       return { success: true, user: normalizeUser(data.user) };
@@ -89,7 +97,15 @@ async function registerViaAppsScript(data: { name: string; email: string; passwo
 
   try {
     const res = await fetch(url, { redirect: 'follow', signal: controller.signal });
-    const result = await res.json();
+    const text = await res.text();
+
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch {
+      console.error('[Auth] Client register fallback returned non-JSON');
+      return { success: false, error: 'Lỗi phản hồi từ hệ thống' };
+    }
 
     if (result.success && result.user) {
       return { success: true, user: normalizeUser(result.user) };
@@ -136,12 +152,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  // Save user to localStorage when it changes
+  // Save user to localStorage and cookie when it changes
   useEffect(() => {
     if (user) {
-      localStorage.setItem('wepower-user', JSON.stringify(user));
+      const json = JSON.stringify(user);
+      localStorage.setItem('wepower-user', json);
+      document.cookie = `wepower-user=${btoa(json)}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
     } else {
       localStorage.removeItem('wepower-user');
+      document.cookie = 'wepower-user=; path=/; max-age=0';
     }
   }, [user]);
 
@@ -154,7 +173,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        // Server returned non-JSON, try client fallback
+        const fallback = await loginViaAppsScript(email, password);
+        if (fallback.success && fallback.user) {
+          setUser(fallback.user);
+          return { success: true };
+        }
+        return { success: false, error: 'Lỗi kết nối server. Vui lòng thử lại.' };
+      }
 
       if (data.success && data.user) {
         setUser(data.user);

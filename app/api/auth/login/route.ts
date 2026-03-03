@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getScriptUrl, getSheetCsvUrl } from '@/lib/config';
 
 const SHEET_NAME = 'Users';
-const FETCH_TIMEOUT_MS = 10_000; // 10 seconds
+const FETCH_TIMEOUT_MS = 15_000; // 15 seconds (Google Apps Script can be slow on cold start)
 
 function parseCSV(csv: string): Record<string, string>[] {
   const lines = csv.trim().split('\n');
@@ -83,8 +83,19 @@ export async function POST(request: Request) {
     try {
       const params = new URLSearchParams({ action: 'login', email, password });
       const scriptUrl = `${gsScriptUrl}?${params.toString()}`;
-      const res = await fetchWithTimeout(scriptUrl, { redirect: 'follow' });
-      const data = await res.json();
+      const res = await fetchWithTimeout(scriptUrl, {
+        redirect: 'follow',
+        cache: 'no-store',
+      });
+
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        console.error('[Login] Apps Script returned non-JSON:', text.slice(0, 200));
+        throw new Error('Invalid response from Apps Script');
+      }
 
       if (data.success) {
         const user = data.user;
@@ -99,12 +110,15 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     } catch (err) {
-      console.error('Apps Script login error:', err instanceof Error ? err.message : err);
+      console.error('[Login] Apps Script error:', err instanceof Error ? err.message : err);
     }
 
     // Method 2: Đọc CSV từ Google Sheets
     try {
       const csvRes = await fetchWithTimeout(getSheetCsvUrl(SHEET_NAME), { cache: 'no-store' });
+      if (!csvRes.ok) {
+        throw new Error(`CSV fetch failed with status ${csvRes.status}`);
+      }
       const csv = await csvRes.text();
       const users = parseCSV(csv);
 
