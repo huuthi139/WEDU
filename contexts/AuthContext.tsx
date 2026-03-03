@@ -23,6 +23,86 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function isAdminRole(role: string): boolean {
+  const normalized = role.toLowerCase().trim();
+  const adminValues = ['admin', 'administrator', 'quản trị', 'quản trị viên', 'qtv'];
+  return adminValues.some(v => normalized.includes(v));
+}
+
+function normalizeUser(raw: Record<string, string | undefined>): User {
+  const role = raw.role || 'user';
+  const memberLevel = raw.memberLevel || 'Free';
+  return {
+    name: raw.name || '',
+    email: raw.email || '',
+    phone: raw.phone || '',
+    role: isAdminRole(role) ? 'admin' : 'user',
+    memberLevel: (['Free', 'Premium', 'VIP'].includes(memberLevel) ? memberLevel : 'Free') as MemberLevel,
+  };
+}
+
+async function loginViaAppsScript(email: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> {
+  const scriptUrl = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
+  if (!scriptUrl) {
+    return { success: false, error: 'Client fallback không khả dụng' };
+  }
+
+  const params = new URLSearchParams({ action: 'login', email, password });
+  const url = `${scriptUrl}?${params.toString()}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const res = await fetch(url, { redirect: 'follow', signal: controller.signal });
+    const data = await res.json();
+
+    if (data.success && data.user) {
+      return { success: true, user: normalizeUser(data.user) };
+    }
+
+    return { success: false, error: data.error || 'Đăng nhập thất bại' };
+  } catch {
+    return { success: false, error: 'Không thể kết nối đến hệ thống' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function registerViaAppsScript(data: { name: string; email: string; password: string; phone?: string }): Promise<{ success: boolean; user?: User; error?: string }> {
+  const scriptUrl = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
+  if (!scriptUrl) {
+    return { success: false, error: 'Client fallback không khả dụng' };
+  }
+
+  const params = new URLSearchParams({
+    action: 'register',
+    name: data.name,
+    email: data.email,
+    password: data.password,
+    phone: data.phone || '',
+  });
+  const url = `${scriptUrl}?${params.toString()}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const res = await fetch(url, { redirect: 'follow', signal: controller.signal });
+    const result = await res.json();
+
+    if (result.success && result.user) {
+      return { success: true, user: normalizeUser(result.user) };
+    }
+
+    return { success: false, error: result.error || 'Đăng ký thất bại' };
+  } catch {
+    return { success: false, error: 'Không thể kết nối đến hệ thống' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -67,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
+      // Method 1: Server API
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -80,14 +161,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: true };
       }
 
+      // If server can't reach Google (503), try client-side fallback
+      if (data.useClientFallback || res.status === 503) {
+        const fallback = await loginViaAppsScript(email, password);
+        if (fallback.success && fallback.user) {
+          setUser(fallback.user);
+          return { success: true };
+        }
+        return { success: false, error: fallback.error || 'Đăng nhập thất bại' };
+      }
+
       return { success: false, error: data.error || 'Đăng nhập thất bại' };
     } catch {
-      return { success: false, error: 'Lỗi kết nối. Vui lòng thử lại.' };
+      // Server completely unreachable - try client-side fallback
+      const fallback = await loginViaAppsScript(email, password);
+      if (fallback.success && fallback.user) {
+        setUser(fallback.user);
+        return { success: true };
+      }
+      return { success: false, error: fallback.error || 'Lỗi kết nối. Vui lòng thử lại.' };
     }
   };
 
   const register = async (regData: { name: string; email: string; password: string; phone?: string }): Promise<{ success: boolean; error?: string }> => {
     try {
+      // Method 1: Server API
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -101,9 +199,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: true };
       }
 
+      // If server can't reach Google (503), try client-side fallback
+      if (data.useClientFallback || res.status === 503) {
+        const fallback = await registerViaAppsScript(regData);
+        if (fallback.success && fallback.user) {
+          setUser(fallback.user);
+          return { success: true };
+        }
+        return { success: false, error: fallback.error || 'Đăng ký thất bại' };
+      }
+
       return { success: false, error: data.error || 'Đăng ký thất bại' };
     } catch {
-      return { success: false, error: 'Lỗi kết nối. Vui lòng thử lại.' };
+      // Server completely unreachable - try client-side fallback
+      const fallback = await registerViaAppsScript(regData);
+      if (fallback.success && fallback.user) {
+        setUser(fallback.user);
+        return { success: true };
+      }
+      return { success: false, error: fallback.error || 'Lỗi kết nối. Vui lòng thử lại.' };
     }
   };
 

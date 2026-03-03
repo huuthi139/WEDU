@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getScriptUrl, getSheetCsvUrl } from '@/lib/config';
 
 const SHEET_NAME = 'Users';
+const FETCH_TIMEOUT_MS = 10_000; // 10 seconds
 
 function parseCSV(csv: string): Record<string, string>[] {
   const lines = csv.trim().split('\n');
@@ -54,6 +55,16 @@ function isAdminRole(roleValue: string): boolean {
   return adminValues.some(v => normalized.includes(v));
 }
 
+function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  return fetch(url, {
+    ...options,
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeoutId));
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -72,31 +83,30 @@ export async function POST(request: Request) {
     try {
       const params = new URLSearchParams({ action: 'login', email, password });
       const scriptUrl = `${gsScriptUrl}?${params.toString()}`;
-        const res = await fetch(scriptUrl, { redirect: 'follow' });
-        const data = await res.json();
+      const res = await fetchWithTimeout(scriptUrl, { redirect: 'follow' });
+      const data = await res.json();
 
-        if (data.success) {
-          const user = data.user;
-          if (user && user.role) {
-            user.role = isAdminRole(user.role) ? 'admin' : 'user';
-          }
-          return NextResponse.json({ success: true, user });
+      if (data.success) {
+        const user = data.user;
+        if (user && user.role) {
+          user.role = isAdminRole(user.role) ? 'admin' : 'user';
         }
-
-        return NextResponse.json(
-          { success: false, error: data.error || 'Đăng nhập thất bại' },
-          { status: 401 }
-        );
-      } catch (err) {
-        console.error('Apps Script login error:', err);
+        return NextResponse.json({ success: true, user });
       }
+
+      return NextResponse.json(
+        { success: false, error: data.error || 'Đăng nhập thất bại' },
+        { status: 401 }
+      );
+    } catch (err) {
+      console.error('Apps Script login error:', err instanceof Error ? err.message : err);
+    }
 
     // Method 2: Đọc CSV từ Google Sheets
     try {
-      const csvRes = await fetch(getSheetCsvUrl(SHEET_NAME), { cache: 'no-store' });
+      const csvRes = await fetchWithTimeout(getSheetCsvUrl(SHEET_NAME), { cache: 'no-store' });
       const csv = await csvRes.text();
       const users = parseCSV(csv);
-      // Removed: sensitive user count logging
 
       const user = users.find(
         u => getCol(u, 'Email', 'email').toLowerCase() === email.toLowerCase()
@@ -120,8 +130,6 @@ export async function POST(request: Request) {
       const roleValue = getCol(user, 'Role', 'Vai trò');
       const memberLevel = getCol(user, 'Level', 'Hạng thành viên', 'MemberLevel');
 
-      // Removed: sensitive user data logging
-
       return NextResponse.json({
         success: true,
         user: {
@@ -133,9 +141,9 @@ export async function POST(request: Request) {
         },
       });
     } catch (csvError) {
-      console.error('[Login] CSV failed:', csvError);
+      console.error('[Login] CSV failed:', csvError instanceof Error ? csvError.message : csvError);
       return NextResponse.json(
-        { success: false, error: 'Không thể kết nối đến hệ thống. Vui lòng thử lại sau.' },
+        { success: false, error: 'Không thể kết nối đến hệ thống. Vui lòng thử lại sau.', useClientFallback: true },
         { status: 503 }
       );
     }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getScriptUrl, getSheetCsvUrl, getSheetId } from '@/lib/config';
 
 const SHEET_NAME = 'Users';
+const FETCH_TIMEOUT_MS = 10_000;
 
 function parseCSV(csv: string): Record<string, string>[] {
   const lines = csv.trim().split('\n');
@@ -36,6 +37,16 @@ function parseCSV(csv: string): Record<string, string>[] {
   }
 
   return rows;
+}
+
+function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  return fetch(url, {
+    ...options,
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeoutId));
 }
 
 export async function POST(request: Request) {
@@ -80,7 +91,7 @@ export async function POST(request: Request) {
         phone: phone || '',
       });
       const fullUrl = `${scriptUrl}?${params.toString()}`;
-      const res = await fetch(fullUrl, { redirect: 'follow' });
+      const res = await fetchWithTimeout(fullUrl, { redirect: 'follow' });
       const data = await res.json();
 
       if (data.success) {
@@ -92,12 +103,12 @@ export async function POST(request: Request) {
         { status: data.error?.includes('đã được sử dụng') ? 409 : 400 }
       );
     } catch (err) {
-      console.error('Apps Script register error:', err);
+      console.error('Apps Script register error:', err instanceof Error ? err.message : err);
     }
 
     // Method 2: Check email via CSV + write via Sheets API
     try {
-      const csvRes = await fetch(getSheetCsvUrl(SHEET_NAME), { cache: 'no-store' });
+      const csvRes = await fetchWithTimeout(getSheetCsvUrl(SHEET_NAME), { cache: 'no-store' });
       const csv = await csvRes.text();
       const users = parseCSV(csv);
 
@@ -120,23 +131,29 @@ export async function POST(request: Request) {
 
     let written = false;
     if (process.env.GOOGLE_SHEETS_API_KEY) {
-      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${getSheetId()}/values/${encodeURIComponent(SHEET_NAME)}!A:H:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS&key=${process.env.GOOGLE_SHEETS_API_KEY}`;
-      const res = await fetch(appendUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values: [rowData] }),
-      });
-      if (res.ok) written = true;
+      try {
+        const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${getSheetId()}/values/${encodeURIComponent(SHEET_NAME)}!A:H:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS&key=${process.env.GOOGLE_SHEETS_API_KEY}`;
+        const res = await fetchWithTimeout(appendUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: [rowData] }),
+        });
+        if (res.ok) written = true;
+      } catch (err) {
+        console.error('Sheets API write error:', err instanceof Error ? err.message : err);
+      }
     }
 
     if (!written) {
-      // Demo mode: user registered without Sheets API
+      return NextResponse.json(
+        { success: false, error: 'Không thể kết nối đến hệ thống. Vui lòng thử lại sau.', useClientFallback: true },
+        { status: 503 }
+      );
     }
 
     return NextResponse.json({
       success: true,
       user: { name, email, phone: phone || '', role: 'user', memberLevel: 'Free' },
-      mode: written ? 'live' : 'demo',
     });
   } catch (error) {
     console.error('Register API error:', error);
