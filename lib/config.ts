@@ -3,22 +3,20 @@
  * NEVER hardcode secrets in source code.
  */
 
-// Google Sheet ID - MUST be set in environment variables
+// Google Sheet ID - should be set in environment variables
 export function getSheetId(): string {
   const id = process.env.GOOGLE_SHEET_ID;
   if (!id) {
-    console.error('[Config] GOOGLE_SHEET_ID not set in environment variables');
-    throw new Error('Server configuration error');
+    throw new Error('[Config] GOOGLE_SHEET_ID not set');
   }
   return id;
 }
 
-// Google Apps Script URL - MUST be set in environment variables
+// Google Apps Script URL - should be set in environment variables
 export function getScriptUrl(): string {
   const url = process.env.GOOGLE_SCRIPT_URL;
   if (!url) {
-    console.error('[Config] GOOGLE_SCRIPT_URL not set in environment variables');
-    throw new Error('Server configuration error');
+    throw new Error('[Config] GOOGLE_SCRIPT_URL not set');
   }
   return url;
 }

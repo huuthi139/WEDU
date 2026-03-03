@@ -105,7 +105,7 @@ export function middleware(request: NextRequest) {
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: https://images.unsplash.com https://*.googleusercontent.com",
       "frame-src 'self' https://iframe.mediadelivery.net https://player.mediadelivery.net https://video.bunnycdn.com",
-      "connect-src 'self' https://script.google.com https://docs.google.com https://sheets.googleapis.com",
+      "connect-src 'self' https://script.google.com https://script.googleusercontent.com https://docs.google.com https://sheets.googleapis.com",
     ].join('; ')
   );
 

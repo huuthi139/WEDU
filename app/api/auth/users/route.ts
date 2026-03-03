@@ -39,8 +39,8 @@ function parseCSV(csv: string): Record<string, string>[] {
 export async function GET() {
   try {
     // Method 1: Google Apps Script
-    const scriptUrl = getScriptUrl();
     try {
+      const scriptUrl = getScriptUrl();
       const params = new URLSearchParams({ action: 'getUsers' });
       const res = await fetch(`${scriptUrl}?${params.toString()}`, {
           redirect: 'follow',

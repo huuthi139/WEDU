@@ -81,8 +81,8 @@ export async function POST(request: Request) {
     }
 
     // Method 1: Google Apps Script via GET
-    const scriptUrl = getScriptUrl();
     try {
+      const scriptUrl = getScriptUrl();
       const params = new URLSearchParams({
         action: 'register',
         name,
@@ -158,7 +158,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Register API error:', error);
     return NextResponse.json(
-      { success: false, error: 'Lỗi hệ thống. Vui lòng thử lại.' },
+      { success: false, error: 'Lỗi hệ thống. Vui lòng thử lại.', useClientFallback: true },
       { status: 500 }
     );
   }
