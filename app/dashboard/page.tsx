@@ -161,7 +161,7 @@ export default function Dashboard() {
           </div>
 
           {/* Certificates */}
-          <div className="bg-dark border-2 border-white/10 rounded-xl p-6 hover:border-teal transition-all">
+          <Link href="/certificates" className="bg-dark border-2 border-white/10 rounded-xl p-6 hover:border-teal transition-all block">
             <div className="flex items-center justify-between mb-4">
               <div className="w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -171,7 +171,7 @@ export default function Dashboard() {
             </div>
             <div className="text-3xl font-bold text-white mb-1">{completedCoursesCount}</div>
             <div className="text-white/60 text-sm">Chứng chỉ đã đạt</div>
-          </div>
+          </Link>
 
           {/* Current Streak */}
           <div className="bg-dark border-2 border-white/10 rounded-xl p-6 hover:border-gold transition-all">
