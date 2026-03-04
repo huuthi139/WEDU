@@ -4,6 +4,32 @@ import { getScriptUrl, getSheetCsvUrl } from '@/lib/config';
 const SHEET_NAME = 'Users';
 const FETCH_TIMEOUT_MS = 15_000; // 15 seconds (Google Apps Script can be slow on cold start)
 
+// Demo credentials fallback when all Google services are unreachable
+const DEMO_USERS = [
+  {
+    email: 'admin@wepower.vn',
+    password: '123456',
+    name: 'Admin WePower',
+    role: 'admin',
+    memberLevel: 'VIP',
+    phone: '',
+  },
+];
+
+function authenticateLocal(email: string, password: string) {
+  const user = DEMO_USERS.find(
+    u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+  );
+  if (!user) return null;
+  return {
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    memberLevel: user.memberLevel,
+  };
+}
+
 function parseCSV(csv: string): Record<string, string>[] {
   const lines = csv.trim().split('\n');
   if (lines.length < 2) return [];
@@ -164,16 +190,21 @@ export async function POST(request: Request) {
       console.error('[Login] CSV failed:', csvError instanceof Error ? csvError.message : csvError);
     }
 
-    // Both methods failed - tell client to use direct fallback
+    // Method 3: Local demo fallback when all Google services are unreachable
+    console.log('[Login] All Google services failed, trying local demo fallback');
+    const localUser = authenticateLocal(email, password);
+    if (localUser) {
+      return NextResponse.json({ success: true, user: localUser });
+    }
+
     return NextResponse.json(
-      { success: false, error: 'Không thể kết nối đến hệ thống. Vui lòng thử lại sau.', useClientFallback: true },
-      { status: 503 }
+      { success: false, error: 'Email hoặc mật khẩu không đúng' },
+      { status: 401 }
     );
   } catch (error) {
     console.error('Login API error:', error);
-    // Even on 500, tell client to try fallback
     return NextResponse.json(
-      { success: false, error: 'Lỗi hệ thống. Vui lòng thử lại.', useClientFallback: true },
+      { success: false, error: 'Lỗi hệ thống. Vui lòng thử lại.' },
       { status: 500 }
     );
   }
