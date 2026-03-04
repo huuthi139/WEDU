@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getScriptUrl, getSheetCsvUrl } from '@/lib/config';
 
 function parseCSV(csv: string): Record<string, string>[] {
@@ -36,7 +36,28 @@ function parseCSV(csv: string): Record<string, string>[] {
   return rows;
 }
 
-export async function GET() {
+// Verify admin role from cookie
+function getAdminFromCookie(request: NextRequest): boolean {
+  try {
+    const cookie = request.cookies.get('wepower-user');
+    if (!cookie?.value) return false;
+    const decoded = Buffer.from(cookie.value, 'base64').toString('utf-8');
+    const user = JSON.parse(decoded);
+    return user?.role === 'Admin' || user?.Role === 'Admin';
+  } catch {
+    return false;
+  }
+}
+
+export async function GET(request: NextRequest) {
+  // Authentication: Only admins can list all users
+  if (!getAdminFromCookie(request)) {
+    return NextResponse.json(
+      { success: false, error: 'Không có quyền truy cập. Yêu cầu quyền Admin.' },
+      { status: 403 }
+    );
+  }
+
   try {
     // Method 1: Google Apps Script
     try {

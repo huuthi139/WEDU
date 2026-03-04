@@ -76,6 +76,17 @@ export function middleware(request: NextRequest) {
     }
   }
 
+  // --- Admin-only endpoints ---
+  if (pathname === '/api/auth/users') {
+    const user = getUserFromCookie(request);
+    if (!user || (user.role !== 'Admin')) {
+      return NextResponse.json(
+        { success: false, error: 'Không có quyền truy cập' },
+        { status: 403 }
+      );
+    }
+  }
+
   // --- Block test endpoint in production ---
   if (pathname === '/api/chapters/test') {
     return NextResponse.json(

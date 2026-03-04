@@ -122,59 +122,83 @@ async function fetchChapterStats(timeoutMs = 12000): Promise<Record<string, { le
   return {};
 }
 
+// In-memory cache to avoid hitting Google Sheets on every request
+let cachedCourses: any[] | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+
+async function fetchAndParseCourses() {
+  const [coursesRes, chapterStats] = await Promise.all([
+    fetch(
+      `https://docs.google.com/spreadsheets/d/${getSheetId()}/gviz/tq?tqx=out:csv&sheet=Courses`,
+      { cache: 'no-store' }
+    ),
+    fetchChapterStats(),
+  ]);
+
+  const csv = await coursesRes.text();
+  const rows = parseCSVRows(csv);
+
+  return rows
+    .filter(cols => cols[COL.ID] && cols[COL.TITLE])
+    .map(cols => {
+      const id = cols[COL.ID] || '';
+      const price = Number(cols[COL.PRICE]?.replace(/,/g, '')) || 0;
+      const originalPrice = cols[COL.ORIGINAL_PRICE] ? Number(cols[COL.ORIGINAL_PRICE]?.replace(/,/g, '')) : undefined;
+      const rating = Number(cols[COL.RATING]?.replace(',', '.')) || 0;
+
+      const real = chapterStats[id];
+      const sheetLessons = Number(cols[COL.LESSONS_COUNT]) || 0;
+      const sheetDuration = Number(cols[COL.DURATION]) || 0;
+      const sheetEnrollments = Number(cols[COL.ENROLLMENTS_COUNT]?.replace(/,/g, '')) || 0;
+
+      return {
+        id,
+        thumbnail: cols[COL.THUMBNAIL] || '',
+        title: cols[COL.TITLE] || '',
+        description: cols[COL.DESCRIPTION] || '',
+        instructor: cols[COL.INSTRUCTOR] || 'WePower Academy',
+        price,
+        originalPrice,
+        rating,
+        reviewsCount: Number(cols[COL.REVIEWS_COUNT]) || 0,
+        enrollmentsCount: sheetEnrollments,
+        duration: real ? real.duration : sheetDuration,
+        lessonsCount: real ? real.lessonsCount : sheetLessons,
+        isFree: price === 0,
+        badge: cols[COL.BADGE] || undefined,
+        category: cols[COL.CATEGORY] || '',
+        memberLevel: cols[COL.MEMBER_LEVEL] || 'Free',
+      };
+    });
+}
+
 export async function GET() {
   try {
-    // Fetch courses sheet and chapter stats in parallel
-    const [coursesRes, chapterStats] = await Promise.all([
-      fetch(
-        `https://docs.google.com/spreadsheets/d/${getSheetId()}/gviz/tq?tqx=out:csv&sheet=Courses`,
-        { cache: 'no-store' }
-      ),
-      fetchChapterStats(),
-    ]);
+    const now = Date.now();
 
-    const csv = await coursesRes.text();
-    const rows = parseCSVRows(csv);
+    // Serve from cache if still fresh
+    if (cachedCourses && now - cacheTimestamp < CACHE_TTL_MS) {
+      const response = NextResponse.json({ success: true, courses: cachedCourses });
+      response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=300');
+      return response;
+    }
 
-    const courses = rows
-      .filter(cols => cols[COL.ID] && cols[COL.TITLE])
-      .map(cols => {
-        const id = cols[COL.ID] || '';
-        const price = Number(cols[COL.PRICE]?.replace(/,/g, '')) || 0;
-        const originalPrice = cols[COL.ORIGINAL_PRICE] ? Number(cols[COL.ORIGINAL_PRICE]?.replace(/,/g, '')) : undefined;
-        const rating = Number(cols[COL.RATING]?.replace(',', '.')) || 0;
-
-        // Real stats from chapters (auto-computed), fallback to sheet values
-        const real = chapterStats[id];
-        const sheetLessons = Number(cols[COL.LESSONS_COUNT]) || 0;
-        const sheetDuration = Number(cols[COL.DURATION]) || 0;
-        const sheetEnrollments = Number(cols[COL.ENROLLMENTS_COUNT]?.replace(/,/g, '')) || 0;
-
-        return {
-          id,
-          thumbnail: cols[COL.THUMBNAIL] || '',
-          title: cols[COL.TITLE] || '',
-          description: cols[COL.DESCRIPTION] || '',
-          instructor: cols[COL.INSTRUCTOR] || 'WePower Academy',
-          price,
-          originalPrice,
-          rating,
-          reviewsCount: Number(cols[COL.REVIEWS_COUNT]) || 0,
-          enrollmentsCount: sheetEnrollments,
-          duration: real ? real.duration : sheetDuration,
-          lessonsCount: real ? real.lessonsCount : sheetLessons,
-          isFree: price === 0,
-          badge: cols[COL.BADGE] || undefined,
-          category: cols[COL.CATEGORY] || '',
-          memberLevel: cols[COL.MEMBER_LEVEL] || 'Free',
-        };
-      });
+    const courses = await fetchAndParseCourses();
+    cachedCourses = courses;
+    cacheTimestamp = now;
 
     const response = NextResponse.json({ success: true, courses });
     response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=300');
     return response;
   } catch (error) {
     console.error('Courses API error:', error);
+    // Serve stale cache on error if available
+    if (cachedCourses) {
+      const response = NextResponse.json({ success: true, courses: cachedCourses });
+      response.headers.set('Cache-Control', 'public, s-maxage=60');
+      return response;
+    }
     return NextResponse.json({ success: true, courses: [] });
   }
 }
