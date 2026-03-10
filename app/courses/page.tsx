@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
+import { Suspense, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { CourseCard } from '@/components/ui/CourseCard';
@@ -41,10 +41,23 @@ function Courses() {
     duration: 'all',
   });
 
+  // Debounced search for performance
+  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => setDebouncedSearch(value), 250);
+  }, []);
+
   // Sync search query from URL
   useEffect(() => {
     const q = searchParams.get('q');
-    if (q) setSearchQuery(q);
+    if (q) {
+      setSearchQuery(q);
+      setDebouncedSearch(q);
+    }
   }, [searchParams]);
 
   // Loading state
@@ -58,43 +71,36 @@ function Courses() {
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [coursesLoading, selectedCategory, searchQuery, advancedFilters]);
+  }, [coursesLoading, selectedCategory, debouncedSearch, advancedFilters]);
 
-  const filteredCourses = courses.filter((course) => {
-    const matchesCategory = selectedCategory === 'all' || course.category === selectedCategory;
-    const matchesSearch = course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         course.instructor.toLowerCase().includes(searchQuery.toLowerCase());
+  // Memoize filtered + sorted courses
+  const sortedCourses = useMemo(() => {
+    const searchLower = debouncedSearch.toLowerCase();
 
-    // Price filter
-    const matchesPrice = course.price >= advancedFilters.priceRange[0] &&
-                        course.price <= advancedFilters.priceRange[1];
+    const filtered = courses.filter((course) => {
+      if (selectedCategory !== 'all' && course.category !== selectedCategory) return false;
+      if (searchLower && !course.title.toLowerCase().includes(searchLower) &&
+          !course.instructor.toLowerCase().includes(searchLower)) return false;
+      if (course.price < advancedFilters.priceRange[0] || course.price > advancedFilters.priceRange[1]) return false;
+      if (course.rating < advancedFilters.minRating) return false;
 
-    // Rating filter
-    const matchesRating = course.rating >= advancedFilters.minRating;
+      if (advancedFilters.duration === 'short' && course.duration >= 18000) return false;
+      if (advancedFilters.duration === 'medium' && (course.duration < 18000 || course.duration > 72000)) return false;
+      if (advancedFilters.duration === 'long' && course.duration <= 72000) return false;
 
-    // Duration filter
-    let matchesDuration = true;
-    if (advancedFilters.duration === 'short') {
-      matchesDuration = course.duration < 18000; // < 5 hours (in seconds)
-    } else if (advancedFilters.duration === 'medium') {
-      matchesDuration = course.duration >= 18000 && course.duration <= 72000; // 5-20 hours
-    } else if (advancedFilters.duration === 'long') {
-      matchesDuration = course.duration > 72000; // > 20 hours
-    }
+      return true;
+    });
 
-    return matchesCategory && matchesSearch && matchesPrice && matchesRating && matchesDuration;
-  });
-
-  // Sort courses
-  const sortedCourses = [...filteredCourses].sort((a, b) => {
-    switch (sortBy) {
-      case 'newest': return b.id.localeCompare(a.id);
-      case 'price_asc': return a.price - b.price;
-      case 'price_desc': return b.price - a.price;
-      case 'rating': return b.rating - a.rating;
-      default: return b.enrollmentsCount - a.enrollmentsCount; // popular
-    }
-  });
+    return filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'newest': return b.id.localeCompare(a.id);
+        case 'price_asc': return a.price - b.price;
+        case 'price_desc': return b.price - a.price;
+        case 'rating': return b.rating - a.rating;
+        default: return b.enrollmentsCount - a.enrollmentsCount;
+      }
+    });
+  }, [courses, selectedCategory, debouncedSearch, sortBy, advancedFilters]);
 
   const handleApplyFilters = (filters: FilterState) => {
     setAdvancedFilters(filters);
@@ -133,7 +139,7 @@ function Courses() {
               type="text"
               placeholder="Tìm kiếm khóa học, giảng viên..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full h-12 px-4 pl-12 bg-white/[0.03] border border-white/[0.06] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-teal transition-colors"
             />
             <svg

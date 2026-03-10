@@ -527,10 +527,10 @@ export default function AdminDashboard() {
                       <LevelBadge level="VIP" />
                       <span className="text-sm text-gray-400">{vipCount} học viên</span>
                     </div>
-                    <span className="text-sm text-white font-bold">{Math.round(vipCount / students.length * 100)}%</span>
+                    <span className="text-sm text-white font-bold">{students.length ? Math.round(vipCount / students.length * 100) : 0}%</span>
                   </div>
                   <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-gold to-amber-500 rounded-full" style={{ width: `${vipCount / students.length * 100}%` }} />
+                    <div className="h-full bg-gradient-to-r from-gold to-amber-500 rounded-full" style={{ width: `${students.length ? vipCount / students.length * 100 : 0}%` }} />
                   </div>
                 </div>
                 <div>
@@ -539,10 +539,10 @@ export default function AdminDashboard() {
                       <LevelBadge level="Premium" />
                       <span className="text-sm text-gray-400">{premiumCount} học viên</span>
                     </div>
-                    <span className="text-sm text-white font-bold">{Math.round(premiumCount / students.length * 100)}%</span>
+                    <span className="text-sm text-white font-bold">{students.length ? Math.round(premiumCount / students.length * 100) : 0}%</span>
                   </div>
                   <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-teal rounded-full" style={{ width: `${premiumCount / students.length * 100}%` }} />
+                    <div className="h-full bg-teal rounded-full" style={{ width: `${students.length ? premiumCount / students.length * 100 : 0}%` }} />
                   </div>
                 </div>
                 <div>
@@ -551,10 +551,10 @@ export default function AdminDashboard() {
                       <LevelBadge level="Free" />
                       <span className="text-sm text-gray-400">{freeCount} học viên</span>
                     </div>
-                    <span className="text-sm text-white font-bold">{Math.round(freeCount / students.length * 100)}%</span>
+                    <span className="text-sm text-white font-bold">{students.length ? Math.round(freeCount / students.length * 100) : 0}%</span>
                   </div>
                   <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-gray-500 rounded-full" style={{ width: `${freeCount / students.length * 100}%` }} />
+                    <div className="h-full bg-gray-500 rounded-full" style={{ width: `${students.length ? freeCount / students.length * 100 : 0}%` }} />
                   </div>
                 </div>
               </div>

@@ -1,17 +1,24 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/Button';
 import { CourseCard } from '@/components/ui/CourseCard';
-import { BannerCarousel } from '@/components/ui/BannerCarousel';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { useCourses } from '@/contexts/CoursesContext';
 import { SkeletonCard } from '@/components/ui/SkeletonCard';
 
+const BannerCarousel = dynamic(
+  () => import('@/components/ui/BannerCarousel').then(m => ({ default: m.BannerCarousel })),
+  { loading: () => <div className="h-[400px] md:h-[500px] rounded-2xl bg-white/[0.03] animate-pulse" /> }
+);
+
+import { useMemo } from 'react';
+
 export default function Home() {
   const { courses, isLoading } = useCourses();
-  const featuredCourses = courses.slice(0, 6);
+  const featuredCourses = useMemo(() => courses.slice(0, 6), [courses]);
 
   return (
     <div className="min-h-screen bg-dark">
