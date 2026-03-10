@@ -7,55 +7,7 @@ import { useCourses } from '@/contexts/CoursesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEnrollment } from '@/contexts/EnrollmentContext';
 import type { MemberLevel } from '@/lib/mockData';
-
-function isEmbedUrl(url: string): boolean {
-  return /mediadelivery\.net\/(embed|play)/.test(url)
-    || /player\.mediadelivery\.net/.test(url)
-    || /iframe\.mediadelivery\.net/.test(url)
-    || /video\.bunnycdn\.com/.test(url);
-}
-
-// Normalize Bunny embed URL: player.mediadelivery.net → iframe.mediadelivery.net
-function normalizeBunnyEmbedUrl(url: string): string {
-  if (!url) return url;
-  return url.replace(/^(https?:\/\/)player\.mediadelivery\.net/, '$1iframe.mediadelivery.net');
-}
-
-// Backward compat: convert old { videoId, libraryId } to directPlayUrl
-function normalizeChapters(chapters: any[]): Chapter[] {
-  return chapters.map((ch: any) => ({
-    id: ch.id,
-    title: ch.title,
-    lessons: (ch.lessons || []).map((ls: any) => ({
-      id: ls.id,
-      title: ls.title,
-      duration: ls.duration || '',
-      requiredLevel: ls.requiredLevel || 'Free',
-      directPlayUrl: normalizeBunnyEmbedUrl(
-        ls.directPlayUrl ||
-        (ls.videoId && ls.libraryId
-          ? `https://iframe.mediadelivery.net/embed/${ls.libraryId}/${ls.videoId}`
-          : '')
-      ),
-      thumbnail: ls.thumbnail || '',
-    })),
-  }));
-}
-
-interface Lesson {
-  id: string;
-  title: string;
-  duration: string;
-  requiredLevel: MemberLevel;
-  directPlayUrl: string;
-  thumbnail?: string;
-}
-
-interface Chapter {
-  id: string;
-  title: string;
-  lessons: Lesson[];
-}
+import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
 
 const defaultChapters: Chapter[] = [];
 
@@ -79,7 +31,10 @@ function getStoredComments(courseId: string, lessonId: string): Comment[] {
   try {
     const all: Comment[] = JSON.parse(localStorage.getItem(COMMENTS_STORAGE_KEY) || '[]');
     return all.filter(c => c.courseId === courseId && c.lessonId === lessonId);
-  } catch { return []; }
+  } catch (error) {
+    console.error('[LearnPage] localStorage error:', error instanceof Error ? error.message : String(error));
+    return [];
+  }
 }
 
 function saveComment(comment: Comment) {
@@ -87,7 +42,9 @@ function saveComment(comment: Comment) {
     const all: Comment[] = JSON.parse(localStorage.getItem(COMMENTS_STORAGE_KEY) || '[]');
     all.unshift(comment);
     localStorage.setItem(COMMENTS_STORAGE_KEY, JSON.stringify(all));
-  } catch { /* ignore */ }
+  } catch (error) {
+    console.error('[LearnPage] localStorage error:', error instanceof Error ? error.message : String(error));
+  }
 }
 
 function getAllCourseComments(courseId: string): Comment[] {
@@ -95,7 +52,10 @@ function getAllCourseComments(courseId: string): Comment[] {
   try {
     const all: Comment[] = JSON.parse(localStorage.getItem(COMMENTS_STORAGE_KEY) || '[]');
     return all.filter(c => c.courseId === courseId);
-  } catch { return []; }
+  } catch (error) {
+    console.error('[LearnPage] localStorage error:', error instanceof Error ? error.message : String(error));
+    return [];
+  }
 }
 
 export default function LearnPage() {
@@ -164,7 +124,9 @@ export default function LearnPage() {
         if (saved) {
           setChapters(normalizeChapters(JSON.parse(saved)));
         }
-      } catch { /* ignore */ }
+      } catch (error) {
+        console.error('[LearnPage] localStorage error:', error instanceof Error ? error.message : String(error));
+      }
     }
     // Then fetch from API for latest data
     fetch(`/api/chapters/${courseId}`)
@@ -173,10 +135,12 @@ export default function LearnPage() {
         if (!cancelled && data.success && Array.isArray(data.chapters) && data.chapters.length > 0) {
           const normalized = normalizeChapters(data.chapters);
           setChapters(normalized);
-          try { localStorage.setItem(`wepower-chapters-${courseId}`, JSON.stringify(normalized)); } catch {}
+          try { localStorage.setItem(`wepower-chapters-${courseId}`, JSON.stringify(normalized)); } catch (error) { console.error('[LearnPage] localStorage error:', error instanceof Error ? error.message : String(error)); }
         }
       })
-      .catch(() => {});
+      .catch((error) => {
+        console.error('[LearnPage] Failed to fetch chapters:', error instanceof Error ? error.message : String(error));
+      });
     return () => { cancelled = true; };
   }, [courseId]);
 

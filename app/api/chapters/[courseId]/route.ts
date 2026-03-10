@@ -7,12 +7,13 @@ import { getScriptUrl } from '@/lib/config';
 // ---------------------------------------------------------------------------
 // Google Apps Script GET-based API helpers
 // ---------------------------------------------------------------------------
-const MAX_ENCODED_URL = 7500; // max total URL length (Google Apps Script limit ~8192)
-const REQUEST_TIMEOUT = 25000; // 25s timeout per request
-const SAVE_RETRIES = 2; // retry failed saves up to 2 times
+const MAX_ENCODED_URL = 6500; // max total URL length (Google Apps Script limit ~8192, lowered for safety)
+const REQUEST_TIMEOUT = 30000; // 30s timeout per request
+const SAVE_RETRIES = 3; // retry failed saves up to 3 times
 const READ_RETRIES = 2; // retry failed reads up to 2 times
 const RETRY_DELAY = 1000; // 1s between retries
 const READ_BATCH_SIZE = 6; // parallel read concurrency
+const SAVE_DELAY = 300; // delay between sequential saves to avoid rate limiting
 
 /** Safe JSON parse – returns null when response is not JSON */
 async function safeParse(res: Response): Promise<any | null> {
@@ -116,6 +117,9 @@ function maxLessonBatch(scriptUrl: string, chKey: string, chapter: any, lessons:
 
 async function saveAllChapters(scriptUrl: string, courseId: string, chapters: any[]): Promise<{ success: boolean; error?: string }> {
   for (let i = 0; i < chapters.length; i++) {
+    // Add delay between saves to avoid Google Apps Script rate limiting
+    if (i > 0) await new Promise(r => setTimeout(r, SAVE_DELAY));
+
     const chKey = `${courseId}__${i}`;
     const ch = chapters[i];
     const chJson = JSON.stringify([ch]);
@@ -130,6 +134,7 @@ async function saveAllChapters(scriptUrl: string, courseId: string, chapters: an
       let partIdx = 0;
 
       while (offset < lessons.length) {
+        if (partIdx > 0) await new Promise(r => setTimeout(r, SAVE_DELAY));
         const partKey = `${chKey}__${partIdx}`;
         const batch = maxLessonBatch(scriptUrl, partKey, ch, lessons, offset);
         const partChapter = { id: ch.id, title: ch.title, lessons: lessons.slice(offset, offset + batch) };
@@ -141,12 +146,14 @@ async function saveAllChapters(scriptUrl: string, courseId: string, chapters: an
         partIdx++;
       }
 
+      await new Promise(r => setTimeout(r, SAVE_DELAY));
       if (!await scriptSave(scriptUrl, chKey, JSON.stringify({ _p: partIdx }))) {
         return { success: false, error: `Lỗi lưu index chương ${i + 1}` };
       }
     }
   }
 
+  await new Promise(r => setTimeout(r, SAVE_DELAY));
   if (!await scriptSave(scriptUrl, courseId, JSON.stringify({ _n: chapters.length }))) {
     return { success: false, error: 'Lỗi lưu master index' };
   }
@@ -414,7 +421,7 @@ export async function POST(
 
     // Clean up old chunks AFTER successful save (best-effort, time-limited)
     if (result.success) {
-      try { await cleanupOldData(scriptUrl, courseId, 8000); } catch { /* ignore */ }
+      try { await cleanupOldData(scriptUrl, courseId, 8000); } catch (error) { console.error('[Chapters] Background task error:', error instanceof Error ? error.message : String(error)); }
     }
 
     if (result.success) {
@@ -435,7 +442,7 @@ export async function POST(
         }
       }
       const statsJson = JSON.stringify({ lessonsCount: totalLessons, duration: totalDuration, chaptersCount: totalChapters });
-      try { await scriptSave(scriptUrl, `${courseId}_stats`, statsJson); } catch { /* ignore */ }
+      try { await scriptSave(scriptUrl, `${courseId}_stats`, statsJson); } catch (error) { console.error('[Chapters] Background task error:', error instanceof Error ? error.message : String(error)); }
 
       return NextResponse.json({
         success: true,

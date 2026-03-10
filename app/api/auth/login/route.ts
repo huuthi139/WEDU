@@ -1,72 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getScriptUrl, getSheetCsvUrl } from '@/lib/config';
+import { verifyPassword, isBcryptHash, hashPassword } from '@/lib/auth/password';
+import { createSession } from '@/lib/auth/session';
+import { csvToObjects } from '@/lib/utils/csv';
+import { fetchWithTimeout } from '@/lib/utils/fetch';
+import { isAdminRole, DEMO_USERS } from '@/lib/utils/auth';
 
 const SHEET_NAME = 'Users';
 const FETCH_TIMEOUT_MS = 15_000; // 15 seconds (Google Apps Script can be slow on cold start)
-
-// Demo credentials fallback when all Google services are unreachable
-const DEMO_USERS = [
-  {
-    email: 'admin@wepower.vn',
-    password: '123456',
-    name: 'Admin WePower',
-    role: 'admin',
-    memberLevel: 'VIP',
-    phone: '',
-  },
-];
-
-function authenticateLocal(email: string, password: string) {
-  const user = DEMO_USERS.find(
-    u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-  );
-  if (!user) return null;
-  return {
-    name: user.name,
-    email: user.email,
-    phone: user.phone,
-    role: user.role,
-    memberLevel: user.memberLevel,
-  };
-}
-
-function parseCSV(csv: string): Record<string, string>[] {
-  const lines = csv.trim().split('\n');
-  if (lines.length < 2) return [];
-
-  const parseRow = (line: string): string[] => {
-    const values: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let j = 0; j < line.length; j++) {
-      const char = line[j];
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        values.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    values.push(current.trim());
-    return values;
-  };
-
-  const headers = parseRow(lines[0]);
-  const rows: Record<string, string>[] = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseRow(lines[i]);
-    const row: Record<string, string> = {};
-    headers.forEach((header, idx) => {
-      row[header] = values[idx] || '';
-    });
-    rows.push(row);
-  }
-
-  return rows;
-}
 
 function getCol(row: Record<string, string>, ...keys: string[]): string {
   for (const key of keys) {
@@ -75,20 +16,22 @@ function getCol(row: Record<string, string>, ...keys: string[]): string {
   return '';
 }
 
-function isAdminRole(roleValue: string): boolean {
-  const normalized = roleValue.toLowerCase().trim();
-  const adminValues = ['admin', 'administrator', 'quản trị', 'quản trị viên', 'qtv'];
-  return adminValues.some(v => normalized.includes(v));
-}
-
-function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  return fetch(url, {
-    ...options,
-    signal: controller.signal,
-  }).finally(() => clearTimeout(timeoutId));
+async function migratePasswordIfNeeded(email: string, storedPassword: string, plaintext: string) {
+  if (!isBcryptHash(storedPassword)) {
+    try {
+      const gsScriptUrl = getScriptUrl();
+      const newHash = await hashPassword(plaintext);
+      const params = new URLSearchParams({
+        action: 'updatePassword',
+        email,
+        passwordHash: newHash,
+      });
+      await fetchWithTimeout(`${gsScriptUrl}?${params.toString()}`, { redirect: 'follow', cache: 'no-store' });
+    } catch (e) {
+      console.error('[Migration] Failed to update password hash:', e);
+      // Non-blocking — don't fail login
+    }
+  }
 }
 
 export async function POST(request: Request) {
@@ -104,10 +47,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Method 1: Google Apps Script via GET
+    // Method 1: Google Apps Script via GET — only send email, verify password locally
     try {
       const gsScriptUrl = getScriptUrl();
-      const params = new URLSearchParams({ action: 'login', email, password });
+      const params = new URLSearchParams({ action: 'login', email });
       const scriptUrl = `${gsScriptUrl}?${params.toString()}`;
       const res = await fetchWithTimeout(scriptUrl, {
         redirect: 'follow',
@@ -123,15 +66,40 @@ export async function POST(request: Request) {
         throw new Error('Invalid response from Apps Script');
       }
 
-      if (data.success) {
+      if (data.success && data.user) {
         const user = data.user;
-        if (user && user.role) {
-          user.role = isAdminRole(user.role) ? 'admin' : 'user';
+        const storedPassword = user.passwordHash || '';
+
+        // Verify password locally using bcrypt (or plaintext migration)
+        const isValid = await verifyPassword(password, storedPassword);
+        if (!isValid) {
+          return NextResponse.json(
+            { success: false, error: 'Email hoặc mật khẩu không đúng' },
+            { status: 401 }
+          );
         }
-        return NextResponse.json({ success: true, user });
+
+        // Migrate plaintext password to bcrypt on-the-fly
+        await migratePasswordIfNeeded(email, storedPassword, password);
+
+        const role = isAdminRole(user.role || '') ? 'admin' : 'user';
+        const memberLevel = user.memberLevel || user.level || 'Free';
+
+        // Set JWT session
+        await createSession({ email: user.email, role, name: user.name || '', level: memberLevel });
+
+        return NextResponse.json({
+          success: true,
+          user: {
+            name: user.name || '',
+            email: user.email,
+            phone: user.phone || '',
+            role,
+            memberLevel: (['Free', 'Premium', 'VIP'].includes(memberLevel) ? memberLevel : 'Free'),
+          },
+        });
       }
 
-      // Only return 401 if Apps Script explicitly says credentials are wrong
       if (data.error) {
         return NextResponse.json(
           { success: false, error: data.error },
@@ -152,7 +120,7 @@ export async function POST(request: Request) {
         throw new Error(`CSV fetch failed with status ${csvRes.status}`);
       }
       const csv = await csvRes.text();
-      const users = parseCSV(csv);
+      const users = csvToObjects(csv);
 
       const user = users.find(
         u => getCol(u, 'Email', 'email').toLowerCase() === email.toLowerCase()
@@ -165,24 +133,33 @@ export async function POST(request: Request) {
         );
       }
 
-      const userPassword = getCol(user, 'Password', 'Mật khẩu');
-      if (userPassword !== password) {
+      const storedPassword = getCol(user, 'Password', 'Mật khẩu');
+      const isValid = await verifyPassword(password, storedPassword);
+      if (!isValid) {
         return NextResponse.json(
           { success: false, error: 'Email hoặc mật khẩu không đúng' },
           { status: 401 }
         );
       }
 
+      // Migrate plaintext password to bcrypt on-the-fly
+      await migratePasswordIfNeeded(email, storedPassword, password);
+
       const roleValue = getCol(user, 'Role', 'Vai trò');
       const memberLevel = getCol(user, 'Level', 'Hạng thành viên', 'MemberLevel');
+      const role = isAdminRole(roleValue) ? 'admin' : 'user';
+      const userName = getCol(user, 'Tên', 'Họ và tên', 'Họ tên', 'Name');
+
+      // Set JWT session
+      await createSession({ email, role, name: userName, level: (['Free', 'Premium', 'VIP'].includes(memberLevel) ? memberLevel : 'Free') });
 
       return NextResponse.json({
         success: true,
         user: {
-          name: getCol(user, 'Tên', 'Họ và tên', 'Họ tên', 'Name'),
+          name: userName,
           email: getCol(user, 'Email'),
           phone: getCol(user, 'Phone', 'Số điện thoại', 'SĐT'),
-          role: isAdminRole(roleValue) ? 'admin' : 'user',
+          role,
           memberLevel: (['Free', 'Premium', 'VIP'].includes(memberLevel) ? memberLevel : 'Free'),
         },
       });
@@ -192,9 +169,25 @@ export async function POST(request: Request) {
 
     // Method 3: Local demo fallback when all Google services are unreachable
     console.log('[Login] All Google services failed, trying local demo fallback');
-    const localUser = authenticateLocal(email, password);
-    if (localUser) {
-      return NextResponse.json({ success: true, user: localUser });
+    const demoUser = DEMO_USERS.find(
+      u => u.email.toLowerCase() === email.toLowerCase()
+    );
+    if (demoUser) {
+      const demoHash = await hashPassword(demoUser.plainPassword);
+      const isValid = await verifyPassword(password, demoHash);
+      if (isValid) {
+        await createSession({ email: demoUser.email, role: demoUser.role, name: demoUser.name, level: demoUser.memberLevel });
+        return NextResponse.json({
+          success: true,
+          user: {
+            name: demoUser.name,
+            email: demoUser.email,
+            phone: demoUser.phone,
+            role: demoUser.role,
+            memberLevel: demoUser.memberLevel,
+          },
+        });
+      }
     }
 
     return NextResponse.json(

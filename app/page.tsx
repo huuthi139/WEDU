@@ -38,7 +38,7 @@ export default function Home() {
             {/* Tag Badge */}
             <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full border border-teal/30 bg-teal/5 mb-8">
               <div className="w-2 h-2 rounded-full bg-teal animate-pulse" />
-              <span className="text-xs text-teal uppercase tracking-[2px] font-semibold">WePower Academy</span>
+              <span className="text-xs text-teal uppercase tracking-[2px] font-semibold">Wepower Edu App</span>
             </div>
 
             {/* Main Heading */}
@@ -166,7 +166,7 @@ export default function Home() {
               </div>
               <h3 className="text-lg font-bold text-white mb-3">Chứng chỉ uy tín</h3>
               <p className="text-gray-400 leading-relaxed text-sm">
-                Nhận chứng chỉ được công nhận sau khi hoàn thành khóa học từ WePower Academy.
+                Nhận chứng chỉ được công nhận sau khi hoàn thành khóa học từ Wepower Edu App.
               </p>
             </div>
 
@@ -197,7 +197,7 @@ export default function Home() {
                 Sẵn sàng bắt đầu?
               </h2>
               <p className="text-gray-300 text-lg mb-8 max-w-xl mx-auto">
-                Tham gia cùng hàng ngàn học viên đã thay đổi sự nghiệp của họ với WePower Academy
+                Tham gia cùng hàng ngàn học viên đã thay đổi sự nghiệp của họ với Wepower Edu App
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <Link href="/register">

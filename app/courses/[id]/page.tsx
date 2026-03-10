@@ -15,55 +15,7 @@ import { useEnrollment } from '@/contexts/EnrollmentContext';
 import Image from 'next/image';
 
 import type { MemberLevel } from '@/lib/mockData';
-
-function isEmbedUrl(url: string): boolean {
-  return /mediadelivery\.net\/(embed|play)/.test(url)
-    || /player\.mediadelivery\.net/.test(url)
-    || /iframe\.mediadelivery\.net/.test(url)
-    || /video\.bunnycdn\.com/.test(url);
-}
-
-// Normalize Bunny embed URL: player.mediadelivery.net → iframe.mediadelivery.net
-function normalizeBunnyEmbedUrl(url: string): string {
-  if (!url) return url;
-  return url.replace(/^(https?:\/\/)player\.mediadelivery\.net/, '$1iframe.mediadelivery.net');
-}
-
-// Backward compat: convert old { videoId, libraryId } to directPlayUrl
-function normalizeChapters(chapters: any[]): Chapter[] {
-  return chapters.map((ch: any) => ({
-    id: ch.id,
-    title: ch.title,
-    lessons: (ch.lessons || []).map((ls: any) => ({
-      id: ls.id,
-      title: ls.title,
-      duration: ls.duration || '',
-      requiredLevel: ls.requiredLevel || 'Free',
-      directPlayUrl: normalizeBunnyEmbedUrl(
-        ls.directPlayUrl ||
-        (ls.videoId && ls.libraryId
-          ? `https://iframe.mediadelivery.net/embed/${ls.libraryId}/${ls.videoId}`
-          : '')
-      ),
-      thumbnail: ls.thumbnail || '',
-    })),
-  }));
-}
-
-interface Lesson {
-  id: string;
-  title: string;
-  duration: string;
-  requiredLevel: MemberLevel;
-  directPlayUrl: string;
-  thumbnail?: string;
-}
-
-interface Chapter {
-  id: string;
-  title: string;
-  lessons: Lesson[];
-}
+import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
 
 const defaultChapters: Chapter[] = [];
 
@@ -86,7 +38,10 @@ function getStoredReviews(courseId: string): Review[] {
   try {
     const all: Review[] = JSON.parse(localStorage.getItem(REVIEWS_STORAGE_KEY) || '[]');
     return all.filter(r => r.courseId === courseId);
-  } catch { return []; }
+  } catch (error) {
+    console.error('[CourseDetail] localStorage error:', error instanceof Error ? error.message : String(error));
+    return [];
+  }
 }
 
 function saveReview(review: Review) {
@@ -94,7 +49,9 @@ function saveReview(review: Review) {
     const all: Review[] = JSON.parse(localStorage.getItem(REVIEWS_STORAGE_KEY) || '[]');
     all.unshift(review);
     localStorage.setItem(REVIEWS_STORAGE_KEY, JSON.stringify(all));
-  } catch { /* ignore */ }
+  } catch (error) {
+    console.error('[CourseDetail] localStorage error:', error instanceof Error ? error.message : String(error));
+  }
 }
 
 export default function CourseDetail() {
@@ -126,7 +83,9 @@ export default function CourseDetail() {
         if (saved) {
           setChapters(normalizeChapters(JSON.parse(saved)));
         }
-      } catch { /* ignore */ }
+      } catch (error) {
+        console.error('[CourseDetail] localStorage error:', error instanceof Error ? error.message : String(error));
+      }
     }
     // Then fetch from API for latest data
     if (cid) {
@@ -136,10 +95,16 @@ export default function CourseDetail() {
           if (!cancelled && data.success && Array.isArray(data.chapters) && data.chapters.length > 0) {
             const normalized = normalizeChapters(data.chapters);
             setChapters(normalized);
-            try { localStorage.setItem(`wepower-chapters-${cid}`, JSON.stringify(normalized)); } catch {}
+            try {
+              localStorage.setItem(`wepower-chapters-${cid}`, JSON.stringify(normalized));
+            } catch (error) {
+              console.error('[CourseDetail] localStorage error:', error instanceof Error ? error.message : String(error));
+            }
           }
         })
-        .catch(() => {});
+        .catch((error) => {
+          console.error('[CourseDetail] Failed to fetch chapters:', error instanceof Error ? error.message : String(error));
+        });
     }
     return () => { cancelled = true; };
   }, [params.id]);
@@ -401,12 +366,12 @@ export default function CourseDetail() {
                     ) : (
                       <>
                         <p>
-                          Khóa học toàn diện được thiết kế bởi đội ngũ chuyên gia tại WePower Academy.
+                          Khóa học toàn diện được thiết kế bởi đội ngũ chuyên gia tại Wepower Edu App.
                           Với {course.lessonsCount} bài học được sắp xếp khoa học, bạn sẽ từng bước nắm vững
                           kiến thức cần thiết.
                         </p>
                         <p>
-                          Sau khi hoàn thành khóa học, bạn sẽ nhận được chứng chỉ từ WePower Academy
+                          Sau khi hoàn thành khóa học, bạn sẽ nhận được chứng chỉ từ Wepower Edu App
                           và có thể tự tin áp dụng những gì đã học vào công việc thực tế.
                         </p>
                       </>

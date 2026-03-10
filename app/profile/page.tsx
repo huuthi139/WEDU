@@ -18,6 +18,7 @@ export default function Profile() {
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [passwords, setPasswords] = useState({ current: '', newPassword: '', confirm: '' });
+  const [passwordLoading, setPasswordLoading] = useState(false);
   const [profileData, setProfileData] = useState({
     name: '',
     email: '',
@@ -77,13 +78,13 @@ export default function Profile() {
     setIsEditing(false);
   };
 
-  const handlePasswordChange = () => {
+  const handlePasswordChange = async () => {
     if (!passwords.current) {
       showToast('Vui lòng nhập mật khẩu hiện tại', 'error');
       return;
     }
-    if (passwords.newPassword.length < 6) {
-      showToast('Mật khẩu mới phải có ít nhất 6 ký tự', 'error');
+    if (passwords.newPassword.length < 8) {
+      showToast('Mật khẩu mới phải có ít nhất 8 ký tự', 'error');
       return;
     }
     if (passwords.newPassword !== passwords.confirm) {
@@ -91,16 +92,29 @@ export default function Profile() {
       return;
     }
 
-    // Save password change to localStorage (simulated)
+    setPasswordLoading(true);
     try {
-      const savedPasswords = JSON.parse(localStorage.getItem('wepower-passwords') || '{}');
-      savedPasswords[user.email] = passwords.newPassword;
-      localStorage.setItem('wepower-passwords', JSON.stringify(savedPasswords));
-    } catch { /* ignore */ }
-
-    showToast('Đã đổi mật khẩu thành công!', 'success');
-    setPasswords({ current: '', newPassword: '', confirm: '' });
-    setShowPasswordChange(false);
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: passwords.current,
+          newPassword: passwords.newPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Đổi mật khẩu thất bại', 'error');
+        return;
+      }
+      showToast('Đổi mật khẩu thành công!', 'success');
+      setPasswords({ current: '', newPassword: '', confirm: '' });
+      setShowPasswordChange(false);
+    } catch {
+      showToast('Lỗi kết nối, thử lại sau', 'error');
+    } finally {
+      setPasswordLoading(false);
+    }
   };
 
   const memberLevelLabel = user.memberLevel === 'VIP' ? 'Member cấp Vàng'
@@ -380,7 +394,7 @@ export default function Profile() {
                       value={passwords.newPassword}
                       onChange={(e) => setPasswords({ ...passwords, newPassword: e.target.value })}
                       className="w-full px-4 py-2 bg-dark border border-white/[0.06] rounded-lg text-white focus:outline-none focus:border-teal"
-                      placeholder="Nhập mật khẩu mới (ít nhất 6 ký tự)"
+                      placeholder="Nhập mật khẩu mới (ít nhất 8 ký tự)"
                     />
                   </div>
                   <div>
@@ -404,8 +418,8 @@ export default function Profile() {
                     >
                       Hủy
                     </Button>
-                    <Button variant="primary" size="sm" onClick={handlePasswordChange}>
-                      Cập nhật mật khẩu
+                    <Button variant="primary" size="sm" onClick={handlePasswordChange} disabled={passwordLoading}>
+                      {passwordLoading ? 'Đang xử lý...' : 'Cập nhật mật khẩu'}
                     </Button>
                   </div>
                 </div>

@@ -1,40 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getScriptUrl, getSheetCsvUrl } from '@/lib/config';
-
-function parseCSV(csv: string): Record<string, string>[] {
-  const lines = csv.trim().split('\n');
-  if (lines.length < 2) return [];
-
-  const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
-  const rows: Record<string, string>[] = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const values: string[] = [];
-    let current = '';
-    let inQuotes = false;
-
-    for (let j = 0; j < lines[i].length; j++) {
-      const char = lines[i][j];
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        values.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    values.push(current.trim());
-
-    const row: Record<string, string> = {};
-    headers.forEach((header, idx) => {
-      row[header] = values[idx] || '';
-    });
-    rows.push(row);
-  }
-
-  return rows;
-}
+import { csvToObjects } from '@/lib/utils/csv';
 
 // Verify admin role from cookie
 function getAdminFromCookie(request: NextRequest): boolean {
@@ -79,7 +45,7 @@ export async function GET(request: NextRequest) {
     try {
       const csvRes = await fetch(getSheetCsvUrl('Users'), { cache: 'no-store' });
       const csv = await csvRes.text();
-      const rows = parseCSV(csv);
+      const rows = csvToObjects(csv);
 
       const users = rows.map(row => ({
         Email: row['Email'] || '',

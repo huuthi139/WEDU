@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CourseCard } from '@/components/ui/CourseCard';
 import { Header } from '@/components/layout/Header';
@@ -60,6 +60,27 @@ export default function Dashboard() {
 
   const inProgressCourses = enrolledCourses.filter(c => (c.progress ?? 0) < 100);
   const recommendedCourses = courses.filter(c => !enrolledIds.has(c.id)).slice(0, 3);
+
+  // Calculate real weekly activity from enrollments
+  const weeklyActivity = useMemo(() => {
+    const days = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=CN, 1=T2, ...
+    return days.map((day, index) => {
+      const date = new Date(now);
+      date.setDate(now.getDate() - (6 - index));
+      const dateStr = date.toISOString().split('T')[0];
+      // Count completed lessons and estimate hours (0.25h per lesson)
+      const lessonsOnDay = enrollments.reduce((acc, enrollment) => {
+        if (enrollment.lastAccessedAt && enrollment.lastAccessedAt.startsWith(dateStr)) {
+          return acc + 1;
+        }
+        return acc;
+      }, 0);
+      const hours = Math.round(lessonsOnDay * 0.25 * 10) / 10;
+      return { day, hours };
+    });
+  }, [enrollments]);
 
   return (
     <div className="min-h-screen bg-dark">
@@ -214,20 +235,20 @@ export default function Dashboard() {
           <div className="bg-dark border-2 border-white/10 rounded-xl p-6">
             <h3 className="text-xl font-bold text-white mb-6">Hoạt động tuần này</h3>
             <div className="space-y-4">
-              {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((day, index) => {
-                const hours = [2.5, 3.0, 1.5, 4.0, 2.0, 3.5, 1.0][index];
-                const percentage = (hours / 4) * 100;
+              {weeklyActivity.map((item, index) => {
+                const maxHours = Math.max(...weeklyActivity.map(w => w.hours), 1);
+                const percentage = (item.hours / maxHours) * 100;
                 const barColors = ['bg-teal', 'bg-gold', 'bg-white', 'bg-teal', 'bg-gold', 'bg-white', 'bg-teal'];
                 return (
-                  <div key={day}>
+                  <div key={item.day}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-white/60">{day}</span>
-                      <span className="text-sm text-gold font-bold">{hours}h</span>
+                      <span className="text-sm text-white/60">{item.day}</span>
+                      <span className="text-sm text-gold font-bold">{item.hours}h</span>
                     </div>
                     <div className="h-2 bg-white/10 rounded-full overflow-hidden">
                       <div
                         className={`h-full ${barColors[index]}`}
-                        style={{ width: `${percentage}%` }}
+                        style={{ width: `${item.hours > 0 ? percentage : 0}%` }}
                       />
                     </div>
                   </div>

@@ -1,6 +1,7 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
+import { useAuth } from './AuthContext';
 
 export interface Enrollment {
   courseId: string;
@@ -43,9 +44,46 @@ const STORAGE_KEY_ORDERS = 'wepower-orders';
 const STORAGE_KEY_STREAK = 'wepower-streak';
 
 export function EnrollmentProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const hasSynced = useRef(false);
+
+  // Sync enrollments from server (server is source of truth)
+  const syncFromServer = useCallback(async () => {
+    try {
+      const res = await fetch('/api/enrollments');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.success && data.enrollments) {
+        // Convert server format to local format (server wins for conflicts)
+        const serverEnrollments: Enrollment[] = data.enrollments.map((e: Record<string, unknown>) => ({
+          courseId: e.courseId as string,
+          enrolledAt: e.enrolledAt as string,
+          progress: Number(e.progress) || 0,
+          completedLessons: Array.isArray(e.completedLessons) ? e.completedLessons as string[] : [],
+          lastAccessedAt: e.lastAccessedAt as string,
+        }));
+        setEnrollments(serverEnrollments);
+        localStorage.setItem(STORAGE_KEY_ENROLLMENTS, JSON.stringify(serverEnrollments));
+      }
+    } catch (e) {
+      console.error('[Enrollment] Sync from server failed:', e);
+      // Graceful degradation — use localStorage if server unavailable
+    }
+  }, []);
+
+  // Sync from server when user logs in
+  useEffect(() => {
+    if (user?.email && !hasSynced.current) {
+      hasSynced.current = true;
+      syncFromServer();
+    }
+    if (!user) {
+      hasSynced.current = false;
+    }
+  }, [user?.email, syncFromServer]);
 
   // Load from localStorage
   useEffect(() => {
@@ -55,7 +93,9 @@ export function EnrollmentProvider({ children }: { children: ReactNode }) {
 
       const savedOrders = localStorage.getItem(STORAGE_KEY_ORDERS);
       if (savedOrders) setOrders(JSON.parse(savedOrders));
-    } catch { /* ignore */ }
+    } catch (error) {
+      console.error('[EnrollmentProvider] localStorage error:', error instanceof Error ? error.message : String(error));
+    }
     setIsLoaded(true);
   }, []);
 
@@ -73,6 +113,7 @@ export function EnrollmentProvider({ children }: { children: ReactNode }) {
   }, [orders, isLoaded]);
 
   const enrollCourse = useCallback((courseId: string) => {
+    // 1. Optimistic update — localStorage is updated immediately
     setEnrollments(prev => {
       if (prev.find(e => e.courseId === courseId)) return prev;
       return [...prev, {
@@ -82,6 +123,15 @@ export function EnrollmentProvider({ children }: { children: ReactNode }) {
         completedLessons: [],
         lastAccessedAt: new Date().toISOString(),
       }];
+    });
+
+    // 2. Sync to server (background, non-blocking)
+    fetch('/api/enrollments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ courseId }),
+    }).catch(e => {
+      console.error('[Enrollment] Server sync failed:', e);
     });
   }, []);
 
@@ -94,13 +144,14 @@ export function EnrollmentProvider({ children }: { children: ReactNode }) {
   }, [enrollments]);
 
   const markLessonComplete = useCallback((courseId: string, lessonId: string, totalLessons: number) => {
+    let newProgress = 0;
     setEnrollments(prev => prev.map(e => {
       if (e.courseId !== courseId) return e;
       const completedLessons = e.completedLessons.includes(lessonId)
         ? e.completedLessons
         : [...e.completedLessons, lessonId];
-      const progress = totalLessons > 0 ? Math.round((completedLessons.length / totalLessons) * 100) : 0;
-      return { ...e, completedLessons, progress, lastAccessedAt: new Date().toISOString() };
+      newProgress = totalLessons > 0 ? Math.round((completedLessons.length / totalLessons) * 100) : 0;
+      return { ...e, completedLessons, progress: newProgress, lastAccessedAt: new Date().toISOString() };
     }));
 
     // Update streak
@@ -113,13 +164,24 @@ export function EnrollmentProvider({ children }: { children: ReactNode }) {
         streakData.lastDate = today;
         localStorage.setItem(STORAGE_KEY_STREAK, JSON.stringify(streakData));
       }
-    } catch { /* ignore */ }
+    } catch (error) {
+      console.error('[EnrollmentProvider] localStorage error:', error instanceof Error ? error.message : String(error));
+    }
+
+    // Sync progress to server (background, non-blocking)
+    fetch('/api/enrollments/progress', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ courseId, lessonId, progress: newProgress }),
+    }).catch(e => {
+      console.error('[Progress] Server sync failed:', e);
+    });
   }, []);
 
   const addOrder = useCallback((orderData: Omit<Order, 'id' | 'date' | 'status'>) => {
     const newOrder: Order = {
       ...orderData,
-      id: `ORD-${Date.now()}`,
+      id: `ORD-${crypto.randomUUID()}`,
       date: new Date().toISOString(),
       status: 'Đang chờ',
     };
@@ -149,7 +211,9 @@ export function EnrollmentProvider({ children }: { children: ReactNode }) {
     if (streakData.lastDate === today || streakData.lastDate === yesterday) {
       currentStreak = streakData.count || 0;
     }
-  } catch { /* ignore */ }
+  } catch (error) {
+    console.error('[EnrollmentProvider] localStorage error:', error instanceof Error ? error.message : String(error));
+  }
 
   return (
     <EnrollmentContext.Provider value={{

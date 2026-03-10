@@ -157,7 +157,7 @@ async function fetchAndParseCourses() {
         thumbnail: cols[COL.THUMBNAIL] || '',
         title: cols[COL.TITLE] || '',
         description: cols[COL.DESCRIPTION] || '',
-        instructor: cols[COL.INSTRUCTOR] || 'WePower Academy',
+        instructor: cols[COL.INSTRUCTOR] || 'Wepower Edu App',
         price,
         originalPrice,
         rating,

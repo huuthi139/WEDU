@@ -118,7 +118,7 @@ export function Footer() {
         {/* Bottom Bar */}
         <div className="border-t border-white/[0.06] pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-white/40 text-sm">
-            © 2026 WePower Academy. All rights reserved.
+            © 2026 Wepower Edu App. All rights reserved.
           </p>
           <div className="flex gap-6 text-sm text-white/40">
             <a href="#" className="hover:text-white transition-colors">

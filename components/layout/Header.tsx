@@ -31,12 +31,18 @@ function loadNotifications(): Notification[] {
   try {
     const saved = localStorage.getItem(NOTIF_STORAGE_KEY);
     if (saved) return JSON.parse(saved);
-  } catch { /* ignore */ }
+  } catch (error) {
+    console.error('[Header] localStorage error:', error instanceof Error ? error.message : String(error));
+  }
   return getDefaultNotifications();
 }
 
 function saveNotifications(notifs: Notification[]) {
-  try { localStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(notifs)); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(notifs));
+  } catch (error) {
+    console.error('[Header] localStorage error:', error instanceof Error ? error.message : String(error));
+  }
 }
 
 export function Header() {

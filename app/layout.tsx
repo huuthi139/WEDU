@@ -5,10 +5,11 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { CoursesProvider } from '@/contexts/CoursesContext';
 import { EnrollmentProvider } from '@/contexts/EnrollmentContext';
 import { ToastProvider } from '@/providers/ToastProvider';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export const metadata: Metadata = {
-  title: "Wepower Elearning",
-  description: "Nền tảng học tập trực tuyến",
+  title: "Wepower Edu App",
+  description: "Nền tảng học tập trực tuyến - Wepower Edu App",
 };
 
 export default function RootLayout({
@@ -24,17 +25,19 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
       </head>
       <body className="font-sans">
-        <ToastProvider>
-          <AuthProvider>
-            <CoursesProvider>
-              <EnrollmentProvider>
-                <CartProvider>
-                  {children}
-                </CartProvider>
-              </EnrollmentProvider>
-            </CoursesProvider>
-          </AuthProvider>
-        </ToastProvider>
+        <ErrorBoundary>
+          <ToastProvider>
+            <AuthProvider>
+              <CoursesProvider>
+                <EnrollmentProvider>
+                  <CartProvider>
+                    {children}
+                  </CartProvider>
+                </EnrollmentProvider>
+              </CoursesProvider>
+            </AuthProvider>
+          </ToastProvider>
+        </ErrorBoundary>
       </body>
     </html>
   );

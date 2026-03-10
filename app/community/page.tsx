@@ -98,12 +98,16 @@ function loadPosts(): Post[] {
         }));
       }
     }
-  } catch { /* ignore */ }
+  } catch (error) {
+    console.error('[Community] localStorage read error:', error instanceof Error ? error.message : String(error));
+  }
   return defaultPosts;
 }
 
 function savePosts(posts: Post[]) {
-  try { localStorage.setItem(POSTS_STORAGE_KEY, JSON.stringify(posts)); } catch { /* ignore */ }
+  try { localStorage.setItem(POSTS_STORAGE_KEY, JSON.stringify(posts)); } catch (error) {
+    console.error('[Community] localStorage save error:', error instanceof Error ? error.message : String(error));
+  }
 }
 
 export default function Community() {
@@ -564,7 +568,7 @@ export default function Community() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400">Thành viên</span>
-                  <span className="font-bold text-gold">15,847</span>
+                  <span className="font-bold text-gold">Cộng đồng học viên</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400">Bài viết</span>

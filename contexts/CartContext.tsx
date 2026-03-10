@@ -30,8 +30,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (savedCart) {
         setItems(JSON.parse(savedCart));
       }
-    } catch {
-      // localStorage corrupted, start fresh
+    } catch (error) {
+      console.error('[CartProvider] localStorage error:', error instanceof Error ? error.message : String(error));
     }
     setIsLoaded(true);
   }, []);

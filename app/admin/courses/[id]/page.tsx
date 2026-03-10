@@ -8,62 +8,13 @@ import { Button } from '@/components/ui/Button';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { formatPrice } from '@/lib/utils';
-
-// Helper: detect if URL is a Bunny Stream embed/player URL
-function isEmbedUrl(url: string): boolean {
-  return /mediadelivery\.net\/(embed|play)/.test(url)
-    || /player\.mediadelivery\.net/.test(url)
-    || /iframe\.mediadelivery\.net/.test(url)
-    || /video\.bunnycdn\.com/.test(url);
-}
-
-// Normalize Bunny embed URL: player.mediadelivery.net → iframe.mediadelivery.net
-function normalizeBunnyEmbedUrl(url: string): string {
-  if (!url) return url;
-  return url.replace(/^(https?:\/\/)player\.mediadelivery\.net/, '$1iframe.mediadelivery.net');
-}
-
-// Backward compat: convert old { videoId, libraryId } to directPlayUrl
-function normalizeChapters(chapters: any[]): Chapter[] {
-  return chapters.map((ch: any) => ({
-    id: ch.id,
-    title: ch.title,
-    lessons: (ch.lessons || []).map((ls: any) => ({
-      id: ls.id,
-      title: ls.title,
-      duration: ls.duration || '',
-      requiredLevel: ls.requiredLevel || 'Free',
-      directPlayUrl: normalizeBunnyEmbedUrl(
-        ls.directPlayUrl ||
-        (ls.videoId && ls.libraryId
-          ? `https://iframe.mediadelivery.net/embed/${ls.libraryId}/${ls.videoId}`
-          : '')
-      ),
-      thumbnail: ls.thumbnail || '',
-    })),
-  }));
-}
+import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
 
 // Helper: format seconds to MM:SS
 function formatSecondsToMMSS(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
   const s = Math.floor(totalSeconds % 60);
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-interface Lesson {
-  id: string;
-  title: string;
-  duration: string;
-  requiredLevel: MemberLevel;
-  directPlayUrl: string;
-  thumbnail?: string;
-}
-
-interface Chapter {
-  id: string;
-  title: string;
-  lessons: Lesson[];
 }
 
 const initialChapters: Chapter[] = [];
@@ -120,7 +71,9 @@ export default function CourseContentPage({ params }: { params: { id: string } }
       try {
         const saved = localStorage.getItem(storageKey);
         if (saved) return normalizeChapters(JSON.parse(saved));
-      } catch { /* ignore */ }
+      } catch (error) {
+        console.error('[CourseContentPage] localStorage read error:', error instanceof Error ? error.message : String(error));
+      }
     }
     return initialChapters;
   });
@@ -158,7 +111,9 @@ export default function CourseContentPage({ params }: { params: { id: string } }
   const persistToStorage = useCallback((data: Chapter[]) => {
     try {
       localStorage.setItem(storageKey, JSON.stringify(data));
-    } catch { /* ignore */ }
+    } catch (error) {
+      console.error('[CourseContentPage] localStorage save error:', error instanceof Error ? error.message : String(error));
+    }
   }, [storageKey]);
 
   // Save to backend API with change detection, timeout, and pending queue
