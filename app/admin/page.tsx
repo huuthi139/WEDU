@@ -328,7 +328,16 @@ export default function AdminDashboard() {
   // ------- Computed values -------
   const totalRevenue = recentOrders.filter(o => o.status === 'Hoàn thành').reduce((sum, o) => sum + o.amount, 0);
 
-  // Count students by their account level
+  // Total registered accounts (all users from API)
+  const registeredCount = students.length;
+
+  // Học viên = users who have enrolled in at least one course or appear in orders
+  const orderEmails = new Set(enrollmentOrders.map(o => o.email.toLowerCase()));
+  const actualStudentsCount = students.filter(
+    s => s.enrolledCourses.length > 0 || orderEmails.has(s.email.toLowerCase())
+  ).length;
+
+  // Count by membership level
   const freeCount = students.filter(s => s.memberLevel === 'Free').length;
   const premiumCount = students.filter(s => s.memberLevel === 'Premium').length;
   const vipCount = students.filter(s => s.memberLevel === 'VIP').length;
@@ -542,7 +551,8 @@ export default function AdminDashboard() {
         {activeTab === 'overview' && (
           <OverviewTab
             totalRevenue={totalRevenue}
-            studentsCount={students.length}
+            registeredCount={registeredCount}
+            studentsCount={actualStudentsCount}
             coursesCount={courses.length}
             ordersCount={recentOrders.length}
             vipCount={vipCount}

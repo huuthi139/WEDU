@@ -16,6 +16,7 @@ interface AdminOrder {
 
 interface OverviewTabProps {
   totalRevenue: number;
+  registeredCount: number;
   studentsCount: number;
   coursesCount: number;
   ordersCount: number;
@@ -29,6 +30,7 @@ interface OverviewTabProps {
 
 export function OverviewTab({
   totalRevenue,
+  registeredCount,
   studentsCount,
   coursesCount,
   ordersCount,
@@ -41,7 +43,7 @@ export function OverviewTab({
 }: OverviewTabProps) {
   return (
     <div className="space-y-8">
-      {/* Stats Cards */}
+      {/* Stats Cards - Row 1 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         <div className="bg-gradient-to-br from-teal/20 to-red/5 border border-teal/20 rounded-xl p-5">
           <div className="w-10 h-10 bg-teal/20 rounded-lg flex items-center justify-center mb-3">
@@ -51,6 +53,16 @@ export function OverviewTab({
           </div>
           <div className="text-xl md:text-2xl font-bold text-white mb-1">{formatPrice(totalRevenue)}</div>
           <p className="text-xs text-gray-400">Doanh thu</p>
+        </div>
+
+        <div className="bg-gradient-to-br from-purple-500/20 to-purple-500/5 border border-purple-500/20 rounded-xl p-5">
+          <div className="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center mb-3">
+            <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+            </svg>
+          </div>
+          <div className="text-xl md:text-2xl font-bold text-white mb-1">{registeredCount}</div>
+          <p className="text-xs text-gray-400">Người đăng ký</p>
         </div>
 
         <div className="bg-gradient-to-br from-gold/20 to-gold/5 border border-gold/20 rounded-xl p-5">
@@ -72,6 +84,39 @@ export function OverviewTab({
           <div className="text-xl md:text-2xl font-bold text-white mb-1">{coursesCount}</div>
           <p className="text-xs text-gray-400">Khóa học</p>
         </div>
+      </div>
+
+      {/* Stats Cards - Row 2: Membership breakdown & Orders */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        <div className="bg-gradient-to-br from-gold/15 to-amber-500/5 border border-gold/20 rounded-xl p-5">
+          <div className="w-10 h-10 bg-gold/20 rounded-lg flex items-center justify-center mb-3">
+            <svg className="w-5 h-5 text-gold" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+            </svg>
+          </div>
+          <div className="text-xl md:text-2xl font-bold text-gold mb-1">{vipCount}</div>
+          <p className="text-xs text-gray-400">Thành viên VIP</p>
+        </div>
+
+        <div className="bg-gradient-to-br from-teal/15 to-teal/5 border border-teal/20 rounded-xl p-5">
+          <div className="w-10 h-10 bg-teal/20 rounded-lg flex items-center justify-center mb-3">
+            <svg className="w-5 h-5 text-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+            </svg>
+          </div>
+          <div className="text-xl md:text-2xl font-bold text-teal mb-1">{premiumCount}</div>
+          <p className="text-xs text-gray-400">Thành viên Premium</p>
+        </div>
+
+        <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5">
+          <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center mb-3">
+            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </div>
+          <div className="text-xl md:text-2xl font-bold text-white mb-1">{freeCount}</div>
+          <p className="text-xs text-gray-400">Thành viên Free</p>
+        </div>
 
         <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5">
           <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center mb-3">
@@ -92,36 +137,36 @@ export function OverviewTab({
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <LevelBadge level="VIP" />
-                <span className="text-sm text-gray-400">{vipCount} học viên</span>
+                <span className="text-sm text-gray-400">{vipCount} người</span>
               </div>
-              <span className="text-sm text-white font-bold">{studentsCount ? Math.round(vipCount / studentsCount * 100) : 0}%</span>
+              <span className="text-sm text-white font-bold">{registeredCount ? Math.round(vipCount / registeredCount * 100) : 0}%</span>
             </div>
             <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-gold to-amber-500 rounded-full" style={{ width: `${studentsCount ? vipCount / studentsCount * 100 : 0}%` }} />
+              <div className="h-full bg-gradient-to-r from-gold to-amber-500 rounded-full" style={{ width: `${registeredCount ? vipCount / registeredCount * 100 : 0}%` }} />
             </div>
           </div>
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <LevelBadge level="Premium" />
-                <span className="text-sm text-gray-400">{premiumCount} học viên</span>
+                <span className="text-sm text-gray-400">{premiumCount} người</span>
               </div>
-              <span className="text-sm text-white font-bold">{studentsCount ? Math.round(premiumCount / studentsCount * 100) : 0}%</span>
+              <span className="text-sm text-white font-bold">{registeredCount ? Math.round(premiumCount / registeredCount * 100) : 0}%</span>
             </div>
             <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-teal rounded-full" style={{ width: `${studentsCount ? premiumCount / studentsCount * 100 : 0}%` }} />
+              <div className="h-full bg-teal rounded-full" style={{ width: `${registeredCount ? premiumCount / registeredCount * 100 : 0}%` }} />
             </div>
           </div>
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <LevelBadge level="Free" />
-                <span className="text-sm text-gray-400">{freeCount} học viên</span>
+                <span className="text-sm text-gray-400">{freeCount} người</span>
               </div>
-              <span className="text-sm text-white font-bold">{studentsCount ? Math.round(freeCount / studentsCount * 100) : 0}%</span>
+              <span className="text-sm text-white font-bold">{registeredCount ? Math.round(freeCount / registeredCount * 100) : 0}%</span>
             </div>
             <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-gray-500 rounded-full" style={{ width: `${studentsCount ? freeCount / studentsCount * 100 : 0}%` }} />
+              <div className="h-full bg-gray-500 rounded-full" style={{ width: `${registeredCount ? freeCount / registeredCount * 100 : 0}%` }} />
             </div>
           </div>
         </div>
