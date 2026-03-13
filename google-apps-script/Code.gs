@@ -84,7 +84,7 @@ function doGet(e) {
     var action = (e.parameter.action || '').trim();
 
     if (!action) {
-      return jsonResponse_({ success: true, message: 'Wepower Edu App API is running', actions: ['ping', 'login', 'register', 'appendOrder', 'getUsers', 'updateUserLevel', 'updatePassword', 'deleteUser', 'saveChapters', 'getChapters', 'getAllChapters', 'enrollCourse', 'getEnrollments', 'updateProgress', 'saveReview', 'getReviews'] });
+      return jsonResponse_({ success: true, message: 'Wepower Edu App API is running', actions: ['ping', 'login', 'register', 'getCourses', 'appendOrder', 'getUsers', 'updateUserLevel', 'updatePassword', 'deleteUser', 'saveChapters', 'getChapters', 'getAllChapters', 'enrollCourse', 'getEnrollments', 'updateProgress', 'saveReview', 'getReviews'] });
     }
 
     switch (action) {
@@ -96,6 +96,9 @@ function doGet(e) {
 
       case 'register':
         return jsonResponse_(handleRegister_(e.parameter));
+
+      case 'getCourses':
+        return jsonResponse_(handleGetCourses_());
 
       case 'appendOrder':
         return jsonResponse_(handleAppendOrder_(e.parameter));
@@ -157,6 +160,7 @@ function doPost(e) {
       case 'login':       return jsonResponse_(handleLogin_(data));
       case 'register':    return jsonResponse_(handleRegister_(data));
       case 'appendOrder': return jsonResponse_(handleAppendOrder_(data));
+      case 'getCourses':  return jsonResponse_(handleGetCourses_());
       case 'getUsers':    return jsonResponse_(handleGetUsers_());
       case 'updateUserLevel': return jsonResponse_(handleUpdateUserLevel_(data));
       case 'updatePassword': return jsonResponse_(handleUpdatePassword_(data));
@@ -323,6 +327,30 @@ function handleGetUsers_() {
   }
 
   return { success: true, users: users };
+}
+
+// ==========================================
+// GET COURSES
+// ==========================================
+function handleGetCourses_() {
+  var sheet = getSheet_('Courses');
+  if (!sheet) return { success: true, courses: [] };
+
+  var rows = sheet.getDataRange().getValues();
+  if (rows.length < 2) return { success: true, courses: [] };
+
+  var headers = rows[0].map(function(h) { return h.toString().trim(); });
+  var courses = [];
+
+  for (var i = 1; i < rows.length; i++) {
+    var course = {};
+    for (var j = 0; j < headers.length; j++) {
+      course[headers[j]] = rows[i][j] !== undefined && rows[i][j] !== null ? rows[i][j] : '';
+    }
+    courses.push(course);
+  }
+
+  return { success: true, courses: courses };
 }
 
 // ==========================================

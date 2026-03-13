@@ -127,50 +127,92 @@ let cachedCourses: any[] | null = null;
 let cacheTimestamp = 0;
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 
+// Map CSV row to course object
+function rowToCourse(cols: string[], chapterStats: Record<string, { lessonsCount: number; duration: number }>) {
+  const id = cols[COL.ID] || '';
+  const price = Number(cols[COL.PRICE]?.replace(/,/g, '')) || 0;
+  const originalPrice = cols[COL.ORIGINAL_PRICE] ? Number(cols[COL.ORIGINAL_PRICE]?.replace(/,/g, '')) : undefined;
+  const rating = Number(cols[COL.RATING]?.replace(',', '.')) || 0;
+
+  const real = chapterStats[id];
+  const sheetLessons = Number(cols[COL.LESSONS_COUNT]) || 0;
+  const sheetDuration = Number(cols[COL.DURATION]) || 0;
+  const sheetEnrollments = Number(cols[COL.ENROLLMENTS_COUNT]?.replace(/,/g, '')) || 0;
+
+  return {
+    id,
+    thumbnail: cols[COL.THUMBNAIL] || '',
+    title: cols[COL.TITLE] || '',
+    description: cols[COL.DESCRIPTION] || '',
+    instructor: cols[COL.INSTRUCTOR] || 'Wepower Edu App',
+    price,
+    originalPrice,
+    rating,
+    reviewsCount: Number(cols[COL.REVIEWS_COUNT]) || 0,
+    enrollmentsCount: sheetEnrollments,
+    duration: real ? real.duration : sheetDuration,
+    lessonsCount: real ? real.lessonsCount : sheetLessons,
+    isFree: price === 0,
+    badge: cols[COL.BADGE] || undefined,
+    category: cols[COL.CATEGORY] || '',
+    memberLevel: cols[COL.MEMBER_LEVEL] || 'Free',
+  };
+}
+
 async function fetchAndParseCourses() {
-  const [coursesRes, chapterStats] = await Promise.all([
-    fetch(
-      `https://docs.google.com/spreadsheets/d/${getSheetId()}/gviz/tq?tqx=out:csv&sheet=Courses`,
-      { cache: 'no-store' }
-    ),
-    fetchChapterStats(),
-  ]);
+  // Method 1: Google Sheets CSV export
+  try {
+    const [coursesRes, chapterStats] = await Promise.all([
+      fetch(
+        `https://docs.google.com/spreadsheets/d/${getSheetId()}/gviz/tq?tqx=out:csv&sheet=Courses`,
+        { cache: 'no-store' }
+      ),
+      fetchChapterStats(),
+    ]);
 
-  const csv = await coursesRes.text();
-  const rows = parseCSVRows(csv);
+    const csv = await coursesRes.text();
+    const rows = parseCSVRows(csv);
 
-  return rows
-    .filter(cols => cols[COL.ID] && cols[COL.TITLE])
-    .map(cols => {
-      const id = cols[COL.ID] || '';
-      const price = Number(cols[COL.PRICE]?.replace(/,/g, '')) || 0;
-      const originalPrice = cols[COL.ORIGINAL_PRICE] ? Number(cols[COL.ORIGINAL_PRICE]?.replace(/,/g, '')) : undefined;
-      const rating = Number(cols[COL.RATING]?.replace(',', '.')) || 0;
+    if (rows.length > 0) {
+      return rows
+        .filter(cols => cols[COL.ID] && cols[COL.TITLE])
+        .map(cols => rowToCourse(cols, chapterStats));
+    }
+  } catch (csvErr) {
+    console.warn('[Courses] Google Sheets CSV unavailable:', csvErr instanceof Error ? csvErr.message : csvErr);
+  }
 
-      const real = chapterStats[id];
-      const sheetLessons = Number(cols[COL.LESSONS_COUNT]) || 0;
-      const sheetDuration = Number(cols[COL.DURATION]) || 0;
-      const sheetEnrollments = Number(cols[COL.ENROLLMENTS_COUNT]?.replace(/,/g, '')) || 0;
+  // Method 2: Google Apps Script fallback
+  try {
+    const scriptUrl = getScriptUrl();
+    const res = await fetch(`${scriptUrl}?action=getCourses`, { redirect: 'follow', cache: 'no-store' });
+    const data = await res.json();
 
-      return {
-        id,
-        thumbnail: cols[COL.THUMBNAIL] || '',
-        title: cols[COL.TITLE] || '',
-        description: cols[COL.DESCRIPTION] || '',
-        instructor: cols[COL.INSTRUCTOR] || 'Wepower Edu App',
-        price,
-        originalPrice,
-        rating,
-        reviewsCount: Number(cols[COL.REVIEWS_COUNT]) || 0,
-        enrollmentsCount: sheetEnrollments,
-        duration: real ? real.duration : sheetDuration,
-        lessonsCount: real ? real.lessonsCount : sheetLessons,
-        isFree: price === 0,
-        badge: cols[COL.BADGE] || undefined,
-        category: cols[COL.CATEGORY] || '',
-        memberLevel: cols[COL.MEMBER_LEVEL] || 'Free',
-      };
-    });
+    if (data.success && Array.isArray(data.courses)) {
+      return data.courses.map((c: Record<string, string | number>) => ({
+        id: String(c.ID || c.id || ''),
+        thumbnail: String(c.Thumbnail || c.thumbnail || ''),
+        title: String(c.Title || c.title || ''),
+        description: String(c.Description || c.description || ''),
+        instructor: String(c.Instructor || c.instructor || 'Wepower Edu App'),
+        price: Number(c.Price || c.price || 0),
+        originalPrice: c.OriginalPrice || c.originalPrice ? Number(c.OriginalPrice || c.originalPrice) : undefined,
+        rating: Number(c.Rating || c.rating || 0),
+        reviewsCount: Number(c.ReviewsCount || c.reviewsCount || 0),
+        enrollmentsCount: Number(c.EnrollmentsCount || c.enrollmentsCount || 0),
+        duration: Number(c.Duration || c.duration || 0),
+        lessonsCount: Number(c.LessonsCount || c.lessonsCount || 0),
+        isFree: Number(c.Price || c.price || 0) === 0,
+        badge: String(c.Badge || c.badge || '') || undefined,
+        category: String(c.Category || c.category || ''),
+        memberLevel: String(c.MemberLevel || c.memberLevel || 'Free'),
+      }));
+    }
+  } catch (scriptErr) {
+    console.warn('[Courses] Google Apps Script unavailable:', scriptErr instanceof Error ? scriptErr.message : scriptErr);
+  }
+
+  return [];
 }
 
 export async function GET() {
