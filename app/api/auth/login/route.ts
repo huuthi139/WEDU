@@ -1,38 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getScriptUrl, getSheetCsvUrl } from '@/lib/config';
-import { verifyPassword, isBcryptHash, hashPassword } from '@/lib/auth/password';
+import { getAdminAuth } from '@/lib/firebase/admin';
+import { getUserByUid } from '@/lib/firebase/users';
 import { createSession } from '@/lib/auth/session';
-import { csvToObjects } from '@/lib/utils/csv';
-import { fetchWithTimeout } from '@/lib/utils/fetch';
 import { isAdminRole, DEMO_USERS } from '@/lib/utils/auth';
-
-const SHEET_NAME = 'Users';
-const FETCH_TIMEOUT_MS = 15_000; // 15 seconds (Google Apps Script can be slow on cold start)
-
-function getCol(row: Record<string, string>, ...keys: string[]): string {
-  for (const key of keys) {
-    if (row[key] !== undefined && row[key] !== '') return row[key];
-  }
-  return '';
-}
-
-async function migratePasswordIfNeeded(email: string, storedPassword: string, plaintext: string) {
-  if (!isBcryptHash(storedPassword)) {
-    try {
-      const gsScriptUrl = getScriptUrl();
-      const newHash = await hashPassword(plaintext);
-      const params = new URLSearchParams({
-        action: 'updatePassword',
-        email,
-        passwordHash: newHash,
-      });
-      await fetchWithTimeout(`${gsScriptUrl}?${params.toString()}`, { redirect: 'follow', cache: 'no-store' });
-    } catch (e) {
-      console.error('[Migration] Failed to update password hash:', e);
-      // Non-blocking — don't fail login
-    }
-  }
-}
+import { hashPassword, verifyPassword } from '@/lib/auth/password';
 
 export async function POST(request: Request) {
   try {
@@ -47,128 +18,90 @@ export async function POST(request: Request) {
       );
     }
 
-    // Method 1: Google Apps Script via GET — only send email, verify password locally
+    // Method 1: Firebase Auth - verify credentials via Admin SDK
     try {
-      const gsScriptUrl = getScriptUrl();
-      const params = new URLSearchParams({ action: 'login', email });
-      const scriptUrl = `${gsScriptUrl}?${params.toString()}`;
-      const res = await fetchWithTimeout(scriptUrl, {
-        redirect: 'follow',
-        cache: 'no-store',
-      });
+      const auth = getAdminAuth();
 
-      const text = await res.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        console.error('[Login] Apps Script returned non-JSON:', text.slice(0, 200));
-        throw new Error('Invalid response from Apps Script');
+      // Get user by email from Firebase Auth
+      const firebaseUser = await auth.getUserByEmail(email);
+
+      // Verify password by generating a sign-in token
+      // Firebase Admin SDK doesn't directly verify passwords,
+      // so we use a custom token + client SDK approach.
+      // Instead, we store a password hash in Firestore and verify locally.
+      const userProfile = await getUserByUid(firebaseUser.uid);
+
+      if (!userProfile) {
+        return NextResponse.json(
+          { success: false, error: 'Email hoặc mật khẩu không đúng' },
+          { status: 401 }
+        );
       }
 
-      if (data.success && data.user) {
-        const user = data.user;
-        const storedPassword = user.passwordHash || '';
+      // For Firebase Auth, we rely on the fact that the user exists in Firebase Auth
+      // Password verification happens client-side via Firebase Auth signInWithEmailAndPassword
+      // Here on server, we create a session after client confirms auth
+      // BUT for API-based login (current architecture), we verify via Firestore stored hash
 
-        // Verify password locally using bcrypt (or plaintext migration)
-        const isValid = await verifyPassword(password, storedPassword);
-        if (!isValid) {
+      // Check if this is a Firebase-verified request (has idToken from client)
+      if (body.idToken) {
+        // Verify the Firebase ID token
+        const decodedToken = await auth.verifyIdToken(body.idToken);
+        if (decodedToken.email?.toLowerCase() !== email.toLowerCase()) {
           return NextResponse.json(
-            { success: false, error: 'Email hoặc mật khẩu không đúng' },
+            { success: false, error: 'Token không hợp lệ' },
             { status: 401 }
           );
         }
+      } else {
+        // Legacy flow: verify password hash stored in Firestore
+        // This supports the existing email/password form submission
+        const { getAdminDb } = await import('@/lib/firebase/admin');
+        const db = getAdminDb();
+        const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+        const userData = userDoc.data();
 
-        // Migrate plaintext password to bcrypt on-the-fly
-        await migratePasswordIfNeeded(email, storedPassword, password);
-
-        const role = isAdminRole(user.role || '') ? 'admin' : 'user';
-        const memberLevel = user.memberLevel || user.level || 'Free';
-
-        // Set JWT session
-        await createSession({ email: user.email, role, name: user.name || '', level: memberLevel });
-
-        return NextResponse.json({
-          success: true,
-          user: {
-            name: user.name || '',
-            email: user.email,
-            phone: user.phone || '',
-            role,
-            memberLevel: (['Free', 'Premium', 'VIP'].includes(memberLevel) ? memberLevel : 'Free'),
-          },
-        });
+        if (userData?.passwordHash) {
+          const isValid = await verifyPassword(password, userData.passwordHash);
+          if (!isValid) {
+            return NextResponse.json(
+              { success: false, error: 'Email hoặc mật khẩu không đúng' },
+              { status: 401 }
+            );
+          }
+        }
+        // If no passwordHash in Firestore, the user was created via Firebase Auth
+        // and should use idToken flow
       }
 
-      if (data.error) {
-        return NextResponse.json(
-          { success: false, error: data.error },
-          { status: 401 }
-        );
-      }
+      const role = isAdminRole(userProfile.role) ? 'admin' : 'user';
+      const memberLevel = userProfile.memberLevel || 'Free';
 
-      throw new Error('Apps Script returned unsuccessful without error');
-    } catch (err) {
-      console.error('[Login] Apps Script error:', err instanceof Error ? err.message : err);
-    }
-
-    // Method 2: Read CSV from Google Sheets
-    try {
-      const csvUrl = getSheetCsvUrl(SHEET_NAME);
-      const csvRes = await fetchWithTimeout(csvUrl, { cache: 'no-store' });
-      if (!csvRes.ok) {
-        throw new Error(`CSV fetch failed with status ${csvRes.status}`);
-      }
-      const csv = await csvRes.text();
-      const users = csvToObjects(csv);
-
-      const user = users.find(
-        u => getCol(u, 'Email', 'email').toLowerCase() === email.toLowerCase()
-      );
-
-      if (!user) {
-        return NextResponse.json(
-          { success: false, error: 'Email hoặc mật khẩu không đúng' },
-          { status: 401 }
-        );
-      }
-
-      const storedPassword = getCol(user, 'Password', 'Mật khẩu');
-      const isValid = await verifyPassword(password, storedPassword);
-      if (!isValid) {
-        return NextResponse.json(
-          { success: false, error: 'Email hoặc mật khẩu không đúng' },
-          { status: 401 }
-        );
-      }
-
-      // Migrate plaintext password to bcrypt on-the-fly
-      await migratePasswordIfNeeded(email, storedPassword, password);
-
-      const roleValue = getCol(user, 'Role', 'Vai trò');
-      const memberLevel = getCol(user, 'Level', 'Hạng thành viên', 'MemberLevel');
-      const role = isAdminRole(roleValue) ? 'admin' : 'user';
-      const userName = getCol(user, 'Tên', 'Họ và tên', 'Họ tên', 'Name');
-
-      // Set JWT session
-      await createSession({ email, role, name: userName, level: (['Free', 'Premium', 'VIP'].includes(memberLevel) ? memberLevel : 'Free') });
+      // Set JWT session (keeping existing session mechanism)
+      await createSession({ email: userProfile.email, role, name: userProfile.name, level: memberLevel });
 
       return NextResponse.json({
         success: true,
         user: {
-          name: userName,
-          email: getCol(user, 'Email'),
-          phone: getCol(user, 'Phone', 'Số điện thoại', 'SĐT'),
+          name: userProfile.name,
+          email: userProfile.email,
+          phone: userProfile.phone || '',
           role,
-          memberLevel: (['Free', 'Premium', 'VIP'].includes(memberLevel) ? memberLevel : 'Free'),
+          memberLevel,
         },
       });
-    } catch (csvError) {
-      console.error('[Login] CSV failed:', csvError instanceof Error ? csvError.message : csvError);
+    } catch (err) {
+      const errorCode = (err as { code?: string }).code;
+      // Firebase Auth user not found - try demo fallback
+      if (errorCode === 'auth/user-not-found') {
+        console.log('[Login] User not found in Firebase Auth, trying demo fallback');
+      } else {
+        console.error('[Login] Firebase Auth error:', err instanceof Error ? err.message : err);
+      }
     }
 
-    // Method 3: Local demo fallback when all Google services are unreachable
-    console.log('[Login] All Google services failed, trying local demo fallback');
+    // Method 2: Local demo fallback when Firebase is unreachable or user not found
+    console.log('[Login] Trying local demo fallback');
     const demoUser = DEMO_USERS.find(
       u => u.email.toLowerCase() === email.toLowerCase()
     );

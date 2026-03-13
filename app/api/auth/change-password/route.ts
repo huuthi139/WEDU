@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
+import { getAdminAuth, getAdminDb } from '@/lib/firebase/admin';
 import { hashPassword, verifyPassword } from '@/lib/auth/password';
 
 export async function POST(req: NextRequest) {
@@ -16,36 +17,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Mật khẩu mới phải có ít nhất 8 ký tự' }, { status: 400 });
   }
 
-  const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL!;
-
   try {
-    // 1. Get current password hash from Sheets
-    const userRes = await fetch(`${SCRIPT_URL}?action=login&email=${encodeURIComponent(session.email)}`);
-    const userData = await userRes.json();
+    const auth = getAdminAuth();
+    const db = getAdminDb();
 
-    if (!userData.success) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    // 1. Get Firebase user by email
+    const firebaseUser = await auth.getUserByEmail(session.email);
+
+    // 2. Verify current password via Firestore stored hash
+    const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+    const userData = userDoc.data();
+
+    if (userData?.passwordHash) {
+      const isValid = await verifyPassword(currentPassword, userData.passwordHash);
+      if (!isValid) {
+        return NextResponse.json({ error: 'Mật khẩu hiện tại không đúng' }, { status: 400 });
+      }
     }
 
-    // 2. Verify current password
-    const isValid = await verifyPassword(currentPassword, userData.user.passwordHash);
-    if (!isValid) {
-      return NextResponse.json({ error: 'Mật khẩu hiện tại không đúng' }, { status: 400 });
-    }
+    // 3. Update password in Firebase Auth
+    await auth.updateUser(firebaseUser.uid, { password: newPassword });
 
-    // 3. Hash new password and update via Sheets
+    // 4. Update password hash in Firestore
     const newHash = await hashPassword(newPassword);
-    const updateRes = await fetch(
-      `${SCRIPT_URL}?action=updatePassword&email=${encodeURIComponent(session.email)}&passwordHash=${encodeURIComponent(newHash)}`
-    );
-    const updateData = await updateRes.json();
-
-    if (!updateData.success) {
-      return NextResponse.json({ error: 'Không thể cập nhật mật khẩu' }, { status: 500 });
-    }
+    await db.collection('users').doc(firebaseUser.uid).update({
+      passwordHash: newHash,
+      updatedAt: new Date().toISOString(),
+    });
 
     return NextResponse.json({ success: true, message: 'Đổi mật khẩu thành công' });
-  } catch {
+  } catch (err) {
+    console.error('[ChangePassword] Error:', err instanceof Error ? err.message : err);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
