@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import { getAdminAuth, getAdminDb } from '@/lib/firebase/admin';
-import { createUserProfile } from '@/lib/firebase/users';
 import { hashPassword } from '@/lib/auth/password';
 import { createSession } from '@/lib/auth/session';
 
@@ -35,11 +33,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const auth = getAdminAuth();
-
-    // Create user in Firebase Auth
+    // Try Firebase Auth registration
     let firebaseUser;
     try {
+      const { getAdminAuth } = await import('@/lib/firebase/admin');
+      const auth = getAdminAuth();
+
       firebaseUser = await auth.createUser({
         email,
         password,
@@ -53,7 +52,18 @@ export async function POST(request: Request) {
           { status: 409 }
         );
       }
-      console.error('[Register] Firebase Auth error:', err instanceof Error ? err.message : err);
+
+      const errMsg = err instanceof Error ? err.message : String(err);
+      // Check if it's a network/connection error or missing config
+      if (errMsg.includes('EAI_AGAIN') || errMsg.includes('ENOTFOUND') || errMsg.includes('ETIMEDOUT') || errMsg.includes('fetch') || errMsg.includes('Missing required env vars')) {
+        console.warn('[Register] Firebase unreachable, cannot register:', errMsg);
+        return NextResponse.json(
+          { success: false, error: 'Hệ thống đang bảo trì. Vui lòng thử lại sau.' },
+          { status: 503 }
+        );
+      }
+
+      console.error('[Register] Firebase Auth error:', errMsg);
       return NextResponse.json(
         { success: false, error: 'Không thể tạo tài khoản. Vui lòng thử lại.' },
         { status: 500 }
@@ -64,35 +74,57 @@ export async function POST(request: Request) {
     const hashedPassword = await hashPassword(password);
 
     // Create user profile in Firestore
-    const userProfile = await createUserProfile(firebaseUser.uid, {
-      email,
-      name,
-      phone,
-      role: 'user',
-      memberLevel: 'Free',
-    });
+    try {
+      const { createUserProfile } = await import('@/lib/firebase/users');
+      const { getAdminDb } = await import('@/lib/firebase/admin');
 
-    // Store password hash in Firestore for server-side login verification
-    const db = getAdminDb();
-    await db.collection('users').doc(firebaseUser.uid).update({
-      passwordHash: hashedPassword,
-    });
+      const userProfile = await createUserProfile(firebaseUser.uid, {
+        email,
+        name,
+        phone,
+        role: 'user',
+        memberLevel: 'Free',
+      });
 
-    // Create session
-    await createSession({ email, role: 'user', name, level: 'Free' });
+      // Store password hash in Firestore for server-side login verification
+      const db = getAdminDb();
+      await db.collection('users').doc(firebaseUser.uid).update({
+        passwordHash: hashedPassword,
+      });
 
-    return NextResponse.json({
-      success: true,
-      user: {
-        name: userProfile.name,
-        email: userProfile.email,
-        phone: userProfile.phone,
-        role: userProfile.role,
-        memberLevel: userProfile.memberLevel,
-      },
-    });
+      // Create session
+      await createSession({ email, role: 'user', name, level: 'Free' });
+
+      return NextResponse.json({
+        success: true,
+        user: {
+          name: userProfile.name,
+          email: userProfile.email,
+          phone: userProfile.phone,
+          role: userProfile.role,
+          memberLevel: userProfile.memberLevel,
+        },
+      });
+    } catch (firestoreErr) {
+      console.error('[Register] Firestore error:', firestoreErr instanceof Error ? firestoreErr.message : firestoreErr);
+
+      // User was created in Firebase Auth but Firestore failed
+      // Still create session so user can log in
+      await createSession({ email, role: 'user', name, level: 'Free' });
+
+      return NextResponse.json({
+        success: true,
+        user: {
+          name,
+          email,
+          phone,
+          role: 'user',
+          memberLevel: 'Free',
+        },
+      });
+    }
   } catch (error) {
-    console.error('Register API error:', error);
+    console.error('[Register] Unexpected error:', error instanceof Error ? error.message : error);
     return NextResponse.json(
       { success: false, error: 'Lỗi hệ thống. Vui lòng thử lại.' },
       { status: 500 }

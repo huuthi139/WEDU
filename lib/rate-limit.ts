@@ -5,21 +5,32 @@ let redis: Redis | null = null;
 let loginLimiter: Ratelimit | null = null;
 let registerLimiter: Ratelimit | null = null;
 let apiLimiter: Ratelimit | null = null;
+let redisConfigMissing = false;
 
-function getRedis(): Redis {
+function getRedis(): Redis | null {
+  if (redisConfigMissing) return null;
+
   if (!redis) {
-    redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    });
+    const url = process.env.UPSTASH_REDIS_REST_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+    if (!url || !token) {
+      redisConfigMissing = true;
+      console.warn('[RateLimit] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN not configured. Rate limiting disabled.');
+      return null;
+    }
+
+    redis = new Redis({ url, token });
   }
   return redis;
 }
 
-export function getLoginLimiter(): Ratelimit {
+export function getLoginLimiter(): Ratelimit | null {
   if (!loginLimiter) {
+    const r = getRedis();
+    if (!r) return null;
     loginLimiter = new Ratelimit({
-      redis: getRedis(),
+      redis: r,
       limiter: Ratelimit.slidingWindow(10, '1 m'),
       prefix: 'wepower:login',
     });
@@ -27,10 +38,12 @@ export function getLoginLimiter(): Ratelimit {
   return loginLimiter;
 }
 
-export function getRegisterLimiter(): Ratelimit {
+export function getRegisterLimiter(): Ratelimit | null {
   if (!registerLimiter) {
+    const r = getRedis();
+    if (!r) return null;
     registerLimiter = new Ratelimit({
-      redis: getRedis(),
+      redis: r,
       limiter: Ratelimit.slidingWindow(5, '1 m'),
       prefix: 'wepower:register',
     });
@@ -38,10 +51,12 @@ export function getRegisterLimiter(): Ratelimit {
   return registerLimiter;
 }
 
-export function getApiLimiter(): Ratelimit {
+export function getApiLimiter(): Ratelimit | null {
   if (!apiLimiter) {
+    const r = getRedis();
+    if (!r) return null;
     apiLimiter = new Ratelimit({
-      redis: getRedis(),
+      redis: r,
       limiter: Ratelimit.slidingWindow(100, '1 m'),
       prefix: 'wepower:api',
     });
@@ -50,9 +65,11 @@ export function getApiLimiter(): Ratelimit {
 }
 
 export async function checkRateLimit(
-  limiter: Ratelimit,
+  limiter: Ratelimit | null,
   identifier: string
 ): Promise<{ success: boolean; retryAfter?: number }> {
+  if (!limiter) return { success: true };
+
   try {
     const result = await limiter.limit(identifier);
     if (!result.success) {
