@@ -2,6 +2,34 @@ import { NextResponse } from 'next/server';
 import { hashPassword } from '@/lib/auth/password';
 import { createSession } from '@/lib/auth/session';
 
+const GAS_TIMEOUT = 15000; // 15 seconds
+
+/** Fetch with timeout to prevent hanging requests */
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = GAS_TIMEOUT): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Safely parse JSON from response, returns null if not JSON */
+async function safeJsonParse(res: Response): Promise<any | null> {
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('json') && !ct.includes('javascript')) {
+    // Google Apps Script sometimes returns text/html on redirect errors
+    console.warn('[Register] Non-JSON response:', ct);
+    return null;
+  }
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -98,13 +126,7 @@ export async function POST(request: Request) {
       }
 
       const errMsg = err instanceof Error ? err.message : String(err);
-      const isNetworkError = errMsg.includes('EAI_AGAIN') || errMsg.includes('ENOTFOUND') || errMsg.includes('ETIMEDOUT') || errMsg.includes('fetch') || errMsg.includes('Missing required env vars');
-
-      if (isNetworkError) {
-        console.warn('[Register] Firebase unreachable, trying Google Sheets fallback');
-      } else {
-        console.error('[Register] Firebase Auth error:', errMsg);
-      }
+      console.warn('[Register] Firebase unavailable, trying Google Sheets fallback:', errMsg);
     }
 
     // Method 2: Google Apps Script fallback (saves to Google Sheets)
@@ -112,13 +134,13 @@ export async function POST(request: Request) {
     if (scriptUrl) {
       try {
         // First check if email already exists via login action
-        const checkRes = await fetch(
+        const checkRes = await fetchWithTimeout(
           `${scriptUrl}?action=login&email=${encodeURIComponent(email)}`,
           { redirect: 'follow' }
         );
-        const checkData = await checkRes.json();
+        const checkData = await safeJsonParse(checkRes);
 
-        if (checkData.success && checkData.user) {
+        if (checkData?.success && checkData?.user) {
           return NextResponse.json(
             { success: false, error: 'Email đã được sử dụng. Vui lòng dùng email khác.' },
             { status: 409 }
@@ -134,10 +156,13 @@ export async function POST(request: Request) {
           phone,
         });
 
-        const res = await fetch(`${scriptUrl}?${params.toString()}`, { redirect: 'follow' });
-        const data = await res.json();
+        const res = await fetchWithTimeout(
+          `${scriptUrl}?${params.toString()}`,
+          { redirect: 'follow' }
+        );
+        const data = await safeJsonParse(res);
 
-        if (data.success) {
+        if (data?.success) {
           try {
             await createSession({ email, role: 'user', name, level: 'Free' });
           } catch (sessionErr) {
@@ -156,13 +181,23 @@ export async function POST(request: Request) {
           });
         }
 
-        // Google Script returned error (e.g. email already exists)
-        return NextResponse.json(
-          { success: false, error: data.error || 'Không thể tạo tài khoản.' },
-          { status: 400 }
-        );
+        if (data) {
+          // Google Script returned an error response (e.g. email already exists)
+          return NextResponse.json(
+            { success: false, error: data.error || 'Không thể tạo tài khoản.' },
+            { status: 400 }
+          );
+        }
+
+        // data is null = non-JSON response, fall through
+        console.warn('[Register] Google Script returned non-JSON response');
       } catch (scriptErr) {
-        console.error('[Register] Google Script error:', scriptErr instanceof Error ? scriptErr.message : scriptErr);
+        const msg = scriptErr instanceof Error ? scriptErr.message : String(scriptErr);
+        if (msg.includes('aborted') || msg.includes('abort')) {
+          console.error('[Register] Google Script timeout after', GAS_TIMEOUT, 'ms');
+        } else {
+          console.error('[Register] Google Script error:', msg);
+        }
       }
     }
 

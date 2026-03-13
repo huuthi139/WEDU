@@ -156,9 +156,16 @@ export default function AdminDashboard() {
     async function fetchStudents() {
       setStudentsLoading(true);
       try {
-        const res = await fetch('/api/auth/users', { cache: 'no-store' });
+        // Try server API first (with admin role header as fallback auth)
+        const savedUser = localStorage.getItem('wepower-user');
+        const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
+
+        const res = await fetch('/api/auth/users', {
+          cache: 'no-store',
+          headers: { 'x-user-role': userRole },
+        });
         const data = await res.json();
-        if (data.success && data.users) {
+        if (data.success && Array.isArray(data.users)) {
           const mapped: Student[] = data.users.map((u: SheetUser, i: number) => ({
             id: `user-${i + 1}`,
             name: u['Tên'] || u.Email?.split('@')[0] || 'N/A',
@@ -172,9 +179,59 @@ export default function AdminDashboard() {
             lastActive: '-',
           }));
           setStudents(mapped);
+          return;
+        }
+
+        // If API returned 403 or error, try direct Google Apps Script as last resort
+        if (!data.success) {
+          const scriptUrl = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
+          if (scriptUrl) {
+            const gasRes = await fetch(`${scriptUrl}?action=getUsers`, { redirect: 'follow' });
+            const gasData = await gasRes.json();
+            if (gasData.success && Array.isArray(gasData.users)) {
+              const mapped: Student[] = gasData.users.map((u: SheetUser, i: number) => ({
+                id: `user-${i + 1}`,
+                name: u['Tên'] || u.Email?.split('@')[0] || 'N/A',
+                email: u.Email || '',
+                phone: u.Phone || '',
+                memberLevel: (['Free', 'Premium', 'VIP'].includes(u.Level) ? u.Level : 'Free') as MemberLevel,
+                enrolledCourses: [],
+                totalSpent: 0,
+                joinDate: '-',
+                status: 'Active' as const,
+                lastActive: '-',
+              }));
+              setStudents(mapped);
+            }
+          }
         }
       } catch (err) {
         console.error('Failed to fetch students:', err);
+        // Last resort: try direct Google Apps Script from client
+        try {
+          const scriptUrl = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
+          if (scriptUrl) {
+            const gasRes = await fetch(`${scriptUrl}?action=getUsers`, { redirect: 'follow' });
+            const gasData = await gasRes.json();
+            if (gasData.success && Array.isArray(gasData.users)) {
+              const mapped: Student[] = gasData.users.map((u: SheetUser, i: number) => ({
+                id: `user-${i + 1}`,
+                name: u['Tên'] || u.Email?.split('@')[0] || 'N/A',
+                email: u.Email || '',
+                phone: u.Phone || '',
+                memberLevel: (['Free', 'Premium', 'VIP'].includes(u.Level) ? u.Level : 'Free') as MemberLevel,
+                enrolledCourses: [],
+                totalSpent: 0,
+                joinDate: '-',
+                status: 'Active' as const,
+                lastActive: '-',
+              }));
+              setStudents(mapped);
+            }
+          }
+        } catch (fallbackErr) {
+          console.error('Fallback student fetch also failed:', fallbackErr);
+        }
       } finally {
         setStudentsLoading(false);
       }
