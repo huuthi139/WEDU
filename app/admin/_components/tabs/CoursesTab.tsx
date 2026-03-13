@@ -37,6 +37,7 @@ export function CoursesTab({
             <thead>
               <tr className="border-b border-white/[0.06]">
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">ID</th>
+                <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase w-16">Anh</th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">Tên khóa học</th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">Giá</th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">Học viên</th>
@@ -49,6 +50,21 @@ export function CoursesTab({
               {courses.map(course => (
                 <tr key={course.id} className="border-b border-white/[0.06]/50 hover:bg-white/[0.02]">
                   <td className="p-4 text-sm text-gray-400 font-mono">#{course.id}</td>
+                  <td className="p-4">
+                    {course.thumbnail ? (
+                      <img
+                        src={course.thumbnail}
+                        alt={course.title}
+                        className="w-14 h-8 rounded object-cover border border-white/10"
+                      />
+                    ) : (
+                      <div className="w-14 h-8 rounded bg-white/5 border border-white/10 flex items-center justify-center">
+                        <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                    )}
+                  </td>
                   <td className="p-4">
                     <Link href={`/admin/courses/${course.id}`} className="text-sm text-white font-medium hover:text-teal transition-colors">
                       {course.title}

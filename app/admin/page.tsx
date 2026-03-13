@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Fragment, useCallback } from 'react';
+import { useState, useEffect, Fragment, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { Header } from '@/components/layout/Header';
@@ -103,6 +103,7 @@ interface CourseFormData {
   category: string;
   price: number;
   lessonsCount: number;
+  thumbnail: string;
 }
 
 const emptyCourseForm: CourseFormData = {
@@ -111,6 +112,7 @@ const emptyCourseForm: CourseFormData = {
   category: '',
   price: 0,
   lessonsCount: 0,
+  thumbnail: '',
 };
 
 /* ============================================================
@@ -143,6 +145,9 @@ export default function AdminDashboard() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingCourse, setDeletingCourse] = useState<Course | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
+  const [thumbnailError, setThumbnailError] = useState<string | null>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
 
   // ------- Students state -------
   const [students, setStudents] = useState<Student[]>([]);
@@ -305,6 +310,7 @@ export default function AdminDashboard() {
           category: local.category || sc.category,
           price: local.price !== undefined ? local.price : sc.price,
           isFree: local.price !== undefined ? local.price === 0 : sc.isFree,
+          thumbnail: local.thumbnail || sc.thumbnail,
         });
       } else {
         merged.push(sc);
@@ -375,17 +381,83 @@ export default function AdminDashboard() {
   const openAddCourse = () => {
     setEditingCourse(null);
     setCourseForm(emptyCourseForm);
+    setThumbnailError(null);
     setShowCourseModal(true);
+  };
+
+  const handleThumbnailUpload = async (file: File) => {
+    setThumbnailError(null);
+
+    // Validate file type
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setThumbnailError('Chi chap nhan JPG, PNG hoac WebP');
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setThumbnailError('Anh qua lon. Toi da 5MB');
+      return;
+    }
+
+    // Validate dimensions client-side
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.src = objectUrl;
+
+    img.onload = async () => {
+      URL.revokeObjectURL(objectUrl);
+
+      // Warn if not 16:9 ratio or too small
+      const ratio = img.width / img.height;
+      if (ratio < 1.5 || ratio > 1.9) {
+        setThumbnailError(`Kich thuoc ${img.width}x${img.height} - Nen dung ty le 16:9 (1280x720)`);
+      }
+      if (img.width < 640) {
+        setThumbnailError('Anh qua nho. Nen dung toi thieu 1280x720');
+      }
+
+      // Upload
+      setThumbnailUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append('thumbnail', file);
+
+        const res = await fetch('/api/upload/thumbnail', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          setCourseForm(prev => ({ ...prev, thumbnail: data.url }));
+          setThumbnailError(null);
+        } else {
+          setThumbnailError(data.error || 'Upload that bai');
+        }
+      } catch {
+        setThumbnailError('Loi ket noi - khong the tai anh len');
+      } finally {
+        setThumbnailUploading(false);
+      }
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      setThumbnailError('Khong the doc file anh');
+    };
   };
 
   const openEditCourse = (course: Course) => {
     setEditingCourse(course);
+    setThumbnailError(null);
     setCourseForm({
       title: course.title,
       instructor: course.instructor,
       category: course.category,
       price: course.price,
       lessonsCount: course.lessonsCount,
+      thumbnail: course.thumbnail || '',
     });
     setShowCourseModal(true);
   };
@@ -406,6 +478,7 @@ export default function AdminDashboard() {
                 price: courseForm.price,
                 lessonsCount: courseForm.lessonsCount,
                 isFree: courseForm.price === 0,
+                thumbnail: courseForm.thumbnail || c.thumbnail,
               }
             : c
         )
@@ -415,7 +488,7 @@ export default function AdminDashboard() {
       const newId = String(Math.max(...courses.map(c => parseInt(c.id)), 0) + 1);
       const newCourse: Course = {
         id: newId,
-        thumbnail: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=450&fit=crop',
+        thumbnail: courseForm.thumbnail || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=450&fit=crop',
         title: courseForm.title,
         description: '',
         instructor: courseForm.instructor,
@@ -617,14 +690,128 @@ export default function AdminDashboard() {
           </div>
 
           <div className="space-y-4">
+            {/* Thumbnail Upload */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">
+                Thumbnail khoa hoc
+                <span className="text-xs text-gray-500 ml-2">Kich thuoc chuan: 1280x720 (16:9)</span>
+              </label>
+
+              {/* Preview */}
+              {courseForm.thumbnail && (
+                <div className="relative mb-3 rounded-lg overflow-hidden border border-white/[0.06] group">
+                  <img
+                    src={courseForm.thumbnail}
+                    alt="Course thumbnail"
+                    className="w-full aspect-video object-cover"
+                  />
+                  <div className="absolute inset-0 bg-dark/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => thumbnailInputRef.current?.click()}
+                      className="px-3 py-1.5 bg-teal rounded-lg text-white text-xs font-semibold hover:bg-teal/80 transition-colors"
+                    >
+                      Thay doi
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCourseForm(prev => ({ ...prev, thumbnail: '' }))}
+                      className="px-3 py-1.5 bg-red-500/80 rounded-lg text-white text-xs font-semibold hover:bg-red-500 transition-colors"
+                    >
+                      Xoa
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload area */}
+              {!courseForm.thumbnail && (
+                <div
+                  className={`relative border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                    thumbnailUploading
+                      ? 'border-teal/50 bg-teal/5'
+                      : 'border-gray-700 hover:border-teal/50 hover:bg-white/[0.02]'
+                  }`}
+                  onClick={() => !thumbnailUploading && thumbnailInputRef.current?.click()}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const file = e.dataTransfer.files[0];
+                    if (file) handleThumbnailUpload(file);
+                  }}
+                >
+                  {thumbnailUploading ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <svg className="w-8 h-8 text-teal animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      <span className="text-sm text-teal">Dang tai len...</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2">
+                      <svg className="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <div>
+                        <span className="text-sm text-teal font-medium">Click de chon anh</span>
+                        <span className="text-sm text-gray-500"> hoac keo tha vao day</span>
+                      </div>
+                      <span className="text-xs text-gray-600">JPG, PNG, WebP - Toi da 5MB - Nen 1280x720</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Hidden file input */}
+              <input
+                ref={thumbnailInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleThumbnailUpload(file);
+                  e.target.value = '';
+                }}
+              />
+
+              {/* URL input alternative */}
+              <div className="mt-2">
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+                  <div className="flex-1 h-px bg-white/[0.06]" />
+                  <span>hoac dan link anh</span>
+                  <div className="flex-1 h-px bg-white/[0.06]" />
+                </div>
+                <input
+                  type="url"
+                  value={courseForm.thumbnail}
+                  onChange={e => setCourseForm(prev => ({ ...prev, thumbnail: e.target.value }))}
+                  placeholder="https://example.com/image.jpg"
+                  className="w-full bg-dark border border-gray-700 rounded-lg px-3 py-2 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors"
+                />
+              </div>
+
+              {/* Error message */}
+              {thumbnailError && (
+                <p className="mt-2 text-xs text-amber-400 flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  {thumbnailError}
+                </p>
+              )}
+            </div>
+
             {/* Title */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Tên khóa học</label>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Ten khoa hoc</label>
               <input
                 type="text"
                 value={courseForm.title}
                 onChange={e => setCourseForm(prev => ({ ...prev, title: e.target.value }))}
-                placeholder="Nhập tên khóa học..."
+                placeholder="Nhap ten khoa hoc..."
                 className="w-full bg-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors"
               />
             </div>
