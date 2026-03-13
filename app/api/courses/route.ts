@@ -5,6 +5,44 @@ export const dynamic = 'force-dynamic';
 
 import { getScriptUrl, getSheetId } from '@/lib/config';
 
+/**
+ * Parse a number that may be formatted with locale separators or currency symbols.
+ * Handles: "1.868.000 đ", "1,868,000", "4,8", "868000", "4.8", ""
+ */
+function parseFormattedNumber(val: string | undefined | null): number {
+  if (!val) return 0;
+  const s = val.toString().trim();
+  if (!s) return 0;
+
+  // Remove currency symbols, spaces, and non-numeric chars except . and ,
+  const cleaned = s.replace(/[^\d.,\-]/g, '').trim();
+  if (!cleaned) return 0;
+
+  // Pattern: dots as thousand separators (e.g., "1.868.000" or "1.500.000")
+  if (/^\d{1,3}(\.\d{3})+$/.test(cleaned)) {
+    return Number(cleaned.replace(/\./g, '')) || 0;
+  }
+
+  // Pattern: commas as thousand separators (e.g., "1,868,000")
+  if (/^\d{1,3}(,\d{3})+$/.test(cleaned)) {
+    return Number(cleaned.replace(/,/g, '')) || 0;
+  }
+
+  // Pattern: comma as decimal separator (e.g., "4,8" or "4,85")
+  if (/^\d+,\d{1,2}$/.test(cleaned)) {
+    return Number(cleaned.replace(',', '.')) || 0;
+  }
+
+  // Default: try as-is, then try removing commas, then dots
+  const direct = Number(cleaned);
+  if (!isNaN(direct)) return direct;
+
+  const noComma = Number(cleaned.replace(/,/g, ''));
+  if (!isNaN(noComma)) return noComma;
+
+  return 0;
+}
+
 // Column positions in Google Sheet (0-indexed)
 // Data order: ID, Title, Description, Thumbnail, Instructor, Price, OriginalPrice, Rating, ReviewsCount, EnrollmentsCount, Duration, LessonsCount, Badge, Category
 const COL = {
@@ -130,14 +168,14 @@ const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 // Map CSV row to course object
 function rowToCourse(cols: string[], chapterStats: Record<string, { lessonsCount: number; duration: number }>) {
   const id = cols[COL.ID] || '';
-  const price = Number(cols[COL.PRICE]?.replace(/,/g, '')) || 0;
-  const originalPrice = cols[COL.ORIGINAL_PRICE] ? Number(cols[COL.ORIGINAL_PRICE]?.replace(/,/g, '')) : undefined;
-  const rating = Number(cols[COL.RATING]?.replace(',', '.')) || 0;
+  const price = parseFormattedNumber(cols[COL.PRICE]);
+  const originalPrice = cols[COL.ORIGINAL_PRICE] ? parseFormattedNumber(cols[COL.ORIGINAL_PRICE]) : undefined;
+  const rating = parseFormattedNumber(cols[COL.RATING]);
 
   const real = chapterStats[id];
-  const sheetLessons = Number(cols[COL.LESSONS_COUNT]) || 0;
-  const sheetDuration = Number(cols[COL.DURATION]) || 0;
-  const sheetEnrollments = Number(cols[COL.ENROLLMENTS_COUNT]?.replace(/,/g, '')) || 0;
+  const sheetLessons = parseFormattedNumber(cols[COL.LESSONS_COUNT]);
+  const sheetDuration = parseFormattedNumber(cols[COL.DURATION]);
+  const sheetEnrollments = parseFormattedNumber(cols[COL.ENROLLMENTS_COUNT]);
 
   return {
     id,
@@ -148,7 +186,7 @@ function rowToCourse(cols: string[], chapterStats: Record<string, { lessonsCount
     price,
     originalPrice,
     rating,
-    reviewsCount: Number(cols[COL.REVIEWS_COUNT]) || 0,
+    reviewsCount: parseFormattedNumber(cols[COL.REVIEWS_COUNT]),
     enrollmentsCount: sheetEnrollments,
     duration: real ? real.duration : sheetDuration,
     lessonsCount: real ? real.lessonsCount : sheetLessons,

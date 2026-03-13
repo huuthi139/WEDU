@@ -3,6 +3,32 @@ import { createSession } from '@/lib/auth/session';
 import { isAdminRole, DEMO_USERS } from '@/lib/utils/auth';
 import { hashPassword, verifyPassword } from '@/lib/auth/password';
 
+const GAS_TIMEOUT = 15000; // 15 seconds
+
+/** Fetch with timeout to prevent hanging requests */
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = GAS_TIMEOUT): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Safely parse JSON from response, returns null if not JSON */
+async function safeJsonParse(res: Response): Promise<any | null> {
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('json') && !ct.includes('javascript')) {
+    return null;
+  }
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -81,11 +107,7 @@ export async function POST(request: Request) {
         console.log('[Login] User not found in Firebase Auth, trying fallback');
       } else {
         const errMsg = err instanceof Error ? err.message : String(err);
-        if (errMsg.includes('EAI_AGAIN') || errMsg.includes('ENOTFOUND') || errMsg.includes('ETIMEDOUT') || errMsg.includes('fetch') || errMsg.includes('Missing required env vars')) {
-          console.warn('[Login] Firebase unreachable, trying Google Sheets fallback');
-        } else {
-          console.error('[Login] Firebase Auth error:', errMsg);
-        }
+        console.warn('[Login] Firebase unavailable, trying Google Sheets fallback:', errMsg);
       }
     }
 
@@ -93,15 +115,35 @@ export async function POST(request: Request) {
     const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
     if (scriptUrl) {
       try {
-        const res = await fetch(
+        const res = await fetchWithTimeout(
           `${scriptUrl}?action=login&email=${encodeURIComponent(email)}`,
           { redirect: 'follow' }
         );
-        const data = await res.json();
+        const data = await safeJsonParse(res);
 
-        if (data.success && data.user) {
+        if (data?.success && data?.user) {
           const storedHash = data.user.passwordHash || '';
-          const isValid = await verifyPassword(password, storedHash);
+
+          // Support both bcrypt hashed passwords and legacy plaintext passwords
+          let isValid = false;
+          if (storedHash.startsWith('$2')) {
+            // bcrypt hash
+            isValid = await verifyPassword(password, storedHash);
+          } else if (storedHash && storedHash === password) {
+            // Legacy plaintext password - verify and migrate to bcrypt
+            isValid = true;
+            try {
+              const newHash = await hashPassword(password);
+              await fetchWithTimeout(
+                `${scriptUrl}?action=updatePassword&email=${encodeURIComponent(email)}&passwordHash=${encodeURIComponent(newHash)}`,
+                { redirect: 'follow' },
+                10000
+              );
+              console.log('[Login] Migrated plaintext password to bcrypt for:', email);
+            } catch (migrateErr) {
+              console.warn('[Login] Password migration failed:', migrateErr instanceof Error ? migrateErr.message : migrateErr);
+            }
+          }
 
           if (isValid) {
             const role = isAdminRole(data.user.role) ? 'admin' : 'user';
@@ -135,7 +177,12 @@ export async function POST(request: Request) {
         }
         // User not found in Google Sheets - continue to demo fallback
       } catch (scriptErr) {
-        console.error('[Login] Google Script error:', scriptErr instanceof Error ? scriptErr.message : scriptErr);
+        const msg = scriptErr instanceof Error ? scriptErr.message : String(scriptErr);
+        if (msg.includes('aborted') || msg.includes('abort')) {
+          console.error('[Login] Google Script timeout after', GAS_TIMEOUT, 'ms');
+        } else {
+          console.error('[Login] Google Script error:', msg);
+        }
       }
     }
 
