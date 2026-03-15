@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       const encodedUser = Buffer.from(userJson).toString('base64');
 
       const response = NextResponse.redirect(new URL('/dashboard', request.url));
-      response.cookies.set('wepower-user', encodedUser, {
+      response.cookies.set('wedu-user', encodedUser, {
         path: '/',
         maxAge: 60 * 60 * 24 * 7, // 7 days
         httpOnly: false, // needs to be readable by JS for SPA hydration

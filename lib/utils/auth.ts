@@ -14,10 +14,10 @@ export function isInstructorRole(role: string | undefined): boolean {
 
 export const DEMO_USERS = [
   {
-    email: 'admin@wepower.vn',
+    email: 'admin@wedu.vn',
     plainPassword: '123456',
     role: 'admin',
-    name: 'Admin WePower',
+    name: 'Admin WEDU',
     memberLevel: 'VIP',
     phone: '',
   },

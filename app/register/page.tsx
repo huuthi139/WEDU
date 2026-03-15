@@ -73,7 +73,7 @@ export default function Register() {
     setIsLoading(false);
 
     if (result.success) {
-      showToast('Đăng ký thành công! Chào mừng bạn đến với WEPOWER!', 'success');
+      showToast('Đăng ký thành công! Chào mừng bạn đến với WEDU!', 'success');
       router.push('/dashboard');
     } else {
       setErrors({ general: result.error });
@@ -85,7 +85,7 @@ export default function Register() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <Link href="/" className="flex justify-center mb-8">
-          <span className="text-4xl font-bold text-teal tracking-wider">WEPOWER</span>
+          <span className="text-4xl font-bold text-teal tracking-wider">WEDU</span>
         </Link>
 
         {/* Register Card */}

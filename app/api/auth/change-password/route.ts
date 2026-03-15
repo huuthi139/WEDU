@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
-import { getAdminAuth, getAdminDb } from '@/lib/firebase/admin';
 import { hashPassword, verifyPassword } from '@/lib/auth/password';
 
 export async function POST(req: NextRequest) {
@@ -18,32 +17,25 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const auth = getAdminAuth();
-    const db = getAdminDb();
+    const { getUserByEmail, updateUserProfile } = await import('@/lib/supabase/users');
 
-    // 1. Get Firebase user by email
-    const firebaseUser = await auth.getUserByEmail(session.email);
+    // 1. Get user by email
+    const userProfile = await getUserByEmail(session.email);
+    if (!userProfile) {
+      return NextResponse.json({ error: 'Người dùng không tồn tại' }, { status: 404 });
+    }
 
-    // 2. Verify current password via Firestore stored hash
-    const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
-    const userData = userDoc.data();
-
-    if (userData?.passwordHash) {
-      const isValid = await verifyPassword(currentPassword, userData.passwordHash);
+    // 2. Verify current password
+    if (userProfile.password_hash) {
+      const isValid = await verifyPassword(currentPassword, userProfile.password_hash);
       if (!isValid) {
         return NextResponse.json({ error: 'Mật khẩu hiện tại không đúng' }, { status: 400 });
       }
     }
 
-    // 3. Update password in Firebase Auth
-    await auth.updateUser(firebaseUser.uid, { password: newPassword });
-
-    // 4. Update password hash in Firestore
+    // 3. Update password hash in Supabase
     const newHash = await hashPassword(newPassword);
-    await db.collection('users').doc(firebaseUser.uid).update({
-      passwordHash: newHash,
-      updatedAt: new Date().toISOString(),
-    });
+    await updateUserProfile(session.email, { password_hash: newHash });
 
     return NextResponse.json({ success: true, message: 'Đổi mật khẩu thành công' });
   } catch (err) {

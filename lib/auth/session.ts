@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
-import { signToken, verifyToken, type WePowerJWTPayload } from './jwt';
+import { signToken, verifyToken, type WeduJWTPayload } from './jwt';
 
-export const SESSION_COOKIE = 'wepower-token';
+export const SESSION_COOKIE = 'wedu-token';
 
 export async function createSession(user: { email: string; role: string; name: string; level: string }): Promise<void> {
   const token = await signToken(user);
@@ -15,7 +15,7 @@ export async function createSession(user: { email: string; role: string; name: s
   });
 }
 
-export async function getSession(): Promise<WePowerJWTPayload | null> {
+export async function getSession(): Promise<WeduJWTPayload | null> {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get(SESSION_COOKIE)?.value;

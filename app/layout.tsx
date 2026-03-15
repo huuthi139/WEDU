@@ -8,8 +8,8 @@ import { ToastProvider } from '@/providers/ToastProvider';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export const metadata: Metadata = {
-  title: "Wepower Edu App",
-  description: "Nền tảng học tập trực tuyến - Wepower Edu App",
+  title: "WEDU",
+  description: "Nền tảng học tập trực tuyến - WEDU",
 };
 
 export default function RootLayout({

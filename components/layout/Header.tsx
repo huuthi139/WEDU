@@ -16,13 +16,13 @@ interface Notification {
   read: boolean;
 }
 
-const NOTIF_STORAGE_KEY = 'wepower-notifications';
+const NOTIF_STORAGE_KEY = 'wedu-notifications';
 
 function getDefaultNotifications(): Notification[] {
   return [
-    { id: 'n1', type: 'info', title: 'Chào mừng bạn!', message: 'Chào mừng bạn đến với WEPOWER. Khám phá các khóa học ngay!', time: 'Vừa xong', read: false },
+    { id: 'n1', type: 'info', title: 'Chào mừng bạn!', message: 'Chào mừng bạn đến với WEDU. Khám phá các khóa học ngay!', time: 'Vừa xong', read: false },
     { id: 'n2', type: 'course', title: 'Khóa học mới', message: 'Khóa học AI Marketing đã được cập nhật nội dung mới.', time: '2 giờ trước', read: false },
-    { id: 'n3', type: 'community', title: 'Cộng đồng', message: 'Có bài viết mới trong cộng đồng WEPOWER.', time: '1 ngày trước', read: true },
+    { id: 'n3', type: 'community', title: 'Cộng đồng', message: 'Có bài viết mới trong cộng đồng WEDU.', time: '1 ngày trước', read: true },
   ];
 }
 
@@ -130,7 +130,7 @@ export function Header() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center flex-shrink-0">
-            <span className="text-2xl font-bold text-gold tracking-wider">WEPOWER</span>
+            <span className="text-2xl font-bold text-gold tracking-wider">WEDU</span>
           </Link>
 
           {/* Desktop Navigation */}

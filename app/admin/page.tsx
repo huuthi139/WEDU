@@ -108,7 +108,7 @@ interface CourseFormData {
 
 const emptyCourseForm: CourseFormData = {
   title: '',
-  instructor: 'Wepower Edu App',
+  instructor: 'WEDU',
   category: '',
   price: 0,
   lessonsCount: 0,
@@ -137,7 +137,7 @@ export default function AdminDashboard() {
     date: new Date(o.date).toLocaleDateString('vi-VN'),
     method: o.paymentMethod === 'bank_transfer' ? 'Chuyển khoản' : o.paymentMethod === 'momo' ? 'MoMo' : 'VNPay',
   }));
-  const COURSES_STORAGE_KEY = 'wepower-admin-courses';
+  const COURSES_STORAGE_KEY = 'wedu-admin-courses';
   const [courses, setCourses] = useState<Course[]>([]);
   const [showCourseModal, setShowCourseModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
@@ -162,7 +162,7 @@ export default function AdminDashboard() {
       setStudentsLoading(true);
       try {
         // Try server API first (with admin role header as fallback auth)
-        const savedUser = localStorage.getItem('wepower-user');
+        const savedUser = localStorage.getItem('wedu-user');
         const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
 
         const res = await fetch('/api/auth/users', {

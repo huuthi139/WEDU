@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 import { getLoginLimiter, getRegisterLimiter, getApiLimiter, checkRateLimit } from '@/lib/rate-limit';
 
-const SESSION_COOKIE = 'wepower-token';
+const SESSION_COOKIE = 'wedu-token';
 
 // Helper: verify JWT token from cookie
 async function verifySessionToken(request: NextRequest): Promise<{ email: string; role: string; name: string; level: string } | null> {
@@ -90,7 +90,7 @@ export async function middleware(request: NextRequest) {
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: https://images.unsplash.com https://*.googleusercontent.com",
       "frame-src 'self' https://iframe.mediadelivery.net https://player.mediadelivery.net https://video.bunnycdn.com",
-      "connect-src 'self' https://script.google.com https://script.googleusercontent.com https://docs.google.com https://sheets.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
+      "connect-src 'self' https://script.google.com https://script.googleusercontent.com https://docs.google.com https://sheets.googleapis.com https://*.supabase.co",
     ].join('; ')
   );
 

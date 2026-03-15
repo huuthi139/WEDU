@@ -34,7 +34,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
           <div className="max-w-md text-center">
             <h2 className="text-2xl font-bold mb-4">Có lỗi xảy ra</h2>
             <p className="text-gray-400 mb-6">
-              Wepower Edu App gặp sự cố không mong muốn. Vui lòng tải lại trang.
+              WEDU gặp sự cố không mong muốn. Vui lòng tải lại trang.
             </p>
             <button
               onClick={() => window.location.reload()}

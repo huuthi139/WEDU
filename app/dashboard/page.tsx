@@ -310,7 +310,7 @@ export default function Dashboard() {
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <h4 className="font-bold text-white mb-1">Thành viên WEPOWER</h4>
+                  <h4 className="font-bold text-white mb-1">Thành viên WEDU</h4>
                   <p className="text-sm text-white/60">Đăng ký thành công tài khoản</p>
                 </div>
               </div>

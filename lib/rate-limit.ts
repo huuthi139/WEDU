@@ -32,7 +32,7 @@ export function getLoginLimiter(): Ratelimit | null {
     loginLimiter = new Ratelimit({
       redis: r,
       limiter: Ratelimit.slidingWindow(10, '1 m'),
-      prefix: 'wepower:login',
+      prefix: 'wedu:login',
     });
   }
   return loginLimiter;
@@ -45,7 +45,7 @@ export function getRegisterLimiter(): Ratelimit | null {
     registerLimiter = new Ratelimit({
       redis: r,
       limiter: Ratelimit.slidingWindow(5, '1 m'),
-      prefix: 'wepower:register',
+      prefix: 'wedu:register',
     });
   }
   return registerLimiter;
@@ -58,7 +58,7 @@ export function getApiLimiter(): Ratelimit | null {
     apiLimiter = new Ratelimit({
       redis: r,
       limiter: Ratelimit.slidingWindow(100, '1 m'),
-      prefix: 'wepower:api',
+      prefix: 'wedu:api',
     });
   }
   return apiLimiter;

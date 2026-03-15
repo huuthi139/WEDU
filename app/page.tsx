@@ -38,7 +38,7 @@ export default function Home() {
             {/* Tag Badge */}
             <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full border border-teal/30 bg-teal/5 mb-8">
               <div className="w-2 h-2 rounded-full bg-teal animate-pulse" />
-              <span className="text-xs text-teal uppercase tracking-[2px] font-semibold">Wepower Edu App</span>
+              <span className="text-xs text-teal uppercase tracking-[2px] font-semibold">WEDU</span>
             </div>
 
             {/* Main Heading */}
@@ -136,7 +136,7 @@ export default function Home() {
           <div className="max-w-4xl mx-auto text-center mb-12">
             <p className="text-gold text-xs font-semibold uppercase tracking-[2px] mb-2">Ưu điểm</p>
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-              Tại sao chọn <span className="text-teal">WEPOWER</span>
+              Tại sao chọn <span className="text-teal">WEDU</span>
             </h2>
             <p className="text-gray-400 text-lg max-w-2xl mx-auto">
               Nền tảng chia sẻ kiến thức và kinh nghiệm thực chiến
@@ -166,7 +166,7 @@ export default function Home() {
               </div>
               <h3 className="text-lg font-bold text-white mb-3">Chứng chỉ uy tín</h3>
               <p className="text-gray-400 leading-relaxed text-sm">
-                Nhận chứng chỉ được công nhận sau khi hoàn thành khóa học từ Wepower Edu App.
+                Nhận chứng chỉ được công nhận sau khi hoàn thành khóa học từ WEDU.
               </p>
             </div>
 
@@ -197,7 +197,7 @@ export default function Home() {
                 Sẵn sàng bắt đầu?
               </h2>
               <p className="text-gray-300 text-lg mb-8 max-w-xl mx-auto">
-                Tham gia cùng hàng ngàn học viên đã thay đổi sự nghiệp của họ với Wepower Edu App
+                Tham gia cùng hàng ngàn học viên đã thay đổi sự nghiệp của họ với WEDU
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <Link href="/register">

@@ -7,7 +7,7 @@ export async function GET() {
   const startTime = Date.now();
   const checks: Record<string, any> = {
     status: 'ok',
-    app: 'Wepower Edu App',
+    app: 'WEDU',
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || '1.0.0',
   };

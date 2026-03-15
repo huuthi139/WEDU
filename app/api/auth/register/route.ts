@@ -20,7 +20,6 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
 async function safeJsonParse(res: Response): Promise<any | null> {
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('json') && !ct.includes('javascript')) {
-    // Google Apps Script sometimes returns text/html on redirect errors
     console.warn('[Register] Non-JSON response:', ct);
     return null;
   }
@@ -64,70 +63,41 @@ export async function POST(request: Request) {
     // Hash password for storage
     const hashedPassword = await hashPassword(password);
 
-    // Method 1: Try Firebase Auth registration
+    // Method 1: Try Supabase registration
     try {
-      const { getAdminAuth } = await import('@/lib/firebase/admin');
-      const auth = getAdminAuth();
+      const { emailExists, createUserProfile } = await import('@/lib/supabase/users');
 
-      const firebaseUser = await auth.createUser({
-        email,
-        password,
-        displayName: name,
-      });
-
-      // Create user profile in Firestore
-      try {
-        const { createUserProfile } = await import('@/lib/firebase/users');
-        const { getAdminDb } = await import('@/lib/firebase/admin');
-
-        const userProfile = await createUserProfile(firebaseUser.uid, {
-          email, name, phone, role: 'user', memberLevel: 'Free',
-        });
-
-        const db = getAdminDb();
-        await db.collection('users').doc(firebaseUser.uid).update({
-          passwordHash: hashedPassword,
-        });
-
-        try {
-          await createSession({ email, role: 'user', name, level: 'Free' });
-        } catch (sessionErr) {
-          console.error('[Register] Session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
-        }
-
-        return NextResponse.json({
-          success: true,
-          user: {
-            name: userProfile.name,
-            email: userProfile.email,
-            phone: userProfile.phone,
-            role: userProfile.role,
-            memberLevel: userProfile.memberLevel,
-          },
-        });
-      } catch (firestoreErr) {
-        console.error('[Register] Firestore error:', firestoreErr instanceof Error ? firestoreErr.message : firestoreErr);
-
-        try {
-          await createSession({ email, role: 'user', name, level: 'Free' });
-        } catch {}
-
-        return NextResponse.json({
-          success: true,
-          user: { name, email, phone, role: 'user', memberLevel: 'Free' },
-        });
-      }
-    } catch (err) {
-      const errorCode = (err as { code?: string }).code;
-      if (errorCode === 'auth/email-already-exists') {
+      // Check if email already exists
+      if (await emailExists(email)) {
         return NextResponse.json(
           { success: false, error: 'Email đã được sử dụng. Vui lòng dùng email khác.' },
           { status: 409 }
         );
       }
 
+      const userProfile = await createUserProfile({
+        email, name, phone, passwordHash: hashedPassword, role: 'user', memberLevel: 'Free',
+      });
+
+      try {
+        await createSession({ email, role: 'user', name, level: 'Free' });
+      } catch (sessionErr) {
+        console.error('[Register] Session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
+      }
+
+      return NextResponse.json({
+        success: true,
+        user: {
+          name: userProfile.name,
+          email: userProfile.email,
+          phone: userProfile.phone,
+          role: userProfile.role,
+          memberLevel: userProfile.member_level,
+        },
+      });
+    } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.warn('[Register] Firebase unavailable, trying Google Sheets fallback:', errMsg);
+      console.warn('[Register] Supabase unavailable, trying Google Sheets fallback:', errMsg);
     }
 
     // Method 2: Google Apps Script fallback (saves to Google Sheets)
@@ -183,14 +153,12 @@ export async function POST(request: Request) {
         }
 
         if (data) {
-          // Google Script returned an error response (e.g. email already exists)
           return NextResponse.json(
             { success: false, error: data.error || 'Không thể tạo tài khoản.' },
             { status: 400 }
           );
         }
 
-        // data is null = non-JSON response, fall through
         console.warn('[Register] Google Script returned non-JSON response');
       } catch (scriptErr) {
         const msg = scriptErr instanceof Error ? scriptErr.message : String(scriptErr);

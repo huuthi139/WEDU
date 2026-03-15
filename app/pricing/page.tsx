@@ -70,7 +70,7 @@ export default function PricingPage() {
     },
     {
       q: 'Chứng chỉ có được công nhận không?',
-      a: 'Chứng chỉ của WePower được công nhận bởi nhiều doanh nghiệp và tổ chức trong ngành.',
+      a: 'Chứng chỉ của WEDU được công nhận bởi nhiều doanh nghiệp và tổ chức trong ngành.',
     },
   ];
 

@@ -26,7 +26,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // Load cart from localStorage on mount
   useEffect(() => {
     try {
-      const savedCart = localStorage.getItem('wepower-cart');
+      const savedCart = localStorage.getItem('wedu-cart');
       if (savedCart) {
         setItems(JSON.parse(savedCart));
       }
@@ -39,7 +39,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // Save cart to localStorage only after initial load
   useEffect(() => {
     if (isLoaded) {
-      localStorage.setItem('wepower-cart', JSON.stringify(items));
+      localStorage.setItem('wedu-cart', JSON.stringify(items));
     }
   }, [items, isLoaded]);
 

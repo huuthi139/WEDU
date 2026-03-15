@@ -24,7 +24,7 @@ interface Comment {
   lessonId: string;
 }
 
-const COMMENTS_STORAGE_KEY = 'wepower-comments';
+const COMMENTS_STORAGE_KEY = 'wedu-comments';
 
 function getStoredComments(courseId: string, lessonId: string): Comment[] {
   if (typeof window === 'undefined') return [];
@@ -120,7 +120,7 @@ export default function LearnPage() {
     // Try localStorage first for instant display
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem(`wepower-chapters-${courseId}`);
+        const saved = localStorage.getItem(`wedu-chapters-${courseId}`);
         if (saved) {
           setChapters(normalizeChapters(JSON.parse(saved)));
         }
@@ -135,7 +135,7 @@ export default function LearnPage() {
         if (!cancelled && data.success && Array.isArray(data.chapters) && data.chapters.length > 0) {
           const normalized = normalizeChapters(data.chapters);
           setChapters(normalized);
-          try { localStorage.setItem(`wepower-chapters-${courseId}`, JSON.stringify(normalized)); } catch (error) { console.error('[LearnPage] localStorage error:', error instanceof Error ? error.message : String(error)); }
+          try { localStorage.setItem(`wedu-chapters-${courseId}`, JSON.stringify(normalized)); } catch (error) { console.error('[LearnPage] localStorage error:', error instanceof Error ? error.message : String(error)); }
         }
       })
       .catch((error) => {
@@ -258,7 +258,7 @@ export default function LearnPage() {
             </Link>
             <div className="h-6 w-px bg-white/10 hidden sm:block" />
             <Link href="/" className="text-teal font-black text-lg tracking-wider hidden sm:block">
-              WEPOWER
+              WEDU
             </Link>
           </div>
 

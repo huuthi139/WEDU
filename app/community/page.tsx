@@ -32,7 +32,7 @@ interface Post {
   commentList: Comment[];
 }
 
-const POSTS_STORAGE_KEY = 'wepower-community-posts';
+const POSTS_STORAGE_KEY = 'wedu-community-posts';
 
 const defaultPosts: Post[] = [
   {
@@ -283,7 +283,7 @@ export default function Community() {
         {/* Page Header */}
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">
-            Cộng đồng WEPOWER
+            Cộng đồng WEDU
           </h1>
           <p className="text-gray-400">
             Kết nối, chia sẻ kinh nghiệm và học hỏi cùng nhau

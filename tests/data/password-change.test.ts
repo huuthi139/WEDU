@@ -28,10 +28,10 @@ describe('Password Change Flow', () => {
 
   it('password change does NOT save to localStorage', () => {
     // Verify the banned localStorage key is not used in new flow
-    const BANNED_KEYS = ['wepower-passwords'];
+    const BANNED_KEYS = ['wedu-passwords'];
     BANNED_KEYS.forEach(key => {
       // If new code is correct, no code sets localStorage with this key
-      expect(key).not.toBe('wepower-user'); // sanity check
+      expect(key).not.toBe('wedu-user'); // sanity check
     });
   });
 
