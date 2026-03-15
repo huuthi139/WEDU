@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 
-export interface WePowerJWTPayload extends JWTPayload {
+export interface WeduJWTPayload extends JWTPayload {
   email: string;
   role: string;
   name: string;
@@ -13,7 +13,7 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-export async function signToken(payload: Pick<WePowerJWTPayload, 'email' | 'role' | 'name' | 'level'>): Promise<string> {
+export async function signToken(payload: Pick<WeduJWTPayload, 'email' | 'role' | 'name' | 'level'>): Promise<string> {
   return new SignJWT(payload as Record<string, unknown>)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -21,7 +21,7 @@ export async function signToken(payload: Pick<WePowerJWTPayload, 'email' | 'role
     .sign(getSecret());
 }
 
-export async function verifyToken(token: string): Promise<WePowerJWTPayload> {
+export async function verifyToken(token: string): Promise<WeduJWTPayload> {
   const { payload } = await jwtVerify(token, getSecret());
-  return payload as WePowerJWTPayload;
+  return payload as WeduJWTPayload;
 }

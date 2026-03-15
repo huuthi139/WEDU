@@ -8,13 +8,13 @@ describe('Health Check', () => {
   it('health response shape is correct', () => {
     const mockHealthResponse = {
       status: 'ok',
-      app: 'Wepower Edu App',
+      app: 'WEDU',
       timestamp: new Date().toISOString(),
       googleSheets: { status: 'ok', latencyMs: 100 },
       appsScript: { status: 'ok', latencyMs: 200 },
       totalLatencyMs: 300,
     };
-    expect(mockHealthResponse.app).toBe('Wepower Edu App');
+    expect(mockHealthResponse.app).toBe('WEDU');
     expect(mockHealthResponse.status).toMatch(/^(ok|degraded|error)$/);
     expect(mockHealthResponse.googleSheets).toHaveProperty('status');
     expect(mockHealthResponse.totalLatencyMs).toBeGreaterThanOrEqual(0);

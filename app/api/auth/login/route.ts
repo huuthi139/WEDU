@@ -43,41 +43,15 @@ export async function POST(request: Request) {
       );
     }
 
-    // Method 1: Firebase Auth - verify credentials via Admin SDK
-    let firebaseAvailable = false;
+    // Method 1: Supabase - verify credentials
     try {
-      const { getAdminAuth } = await import('@/lib/firebase/admin');
-      const auth = getAdminAuth();
+      const { getUserByEmail } = await import('@/lib/supabase/users');
+      const userProfile = await getUserByEmail(email);
 
-      const firebaseUser = await auth.getUserByEmail(email);
-      firebaseAvailable = true;
-
-      const { getUserByUid } = await import('@/lib/firebase/users');
-      const userProfile = await getUserByUid(firebaseUser.uid);
-
-      if (!userProfile) {
-        return NextResponse.json(
-          { success: false, error: 'Email hoặc mật khẩu không đúng' },
-          { status: 401 }
-        );
-      }
-
-      if (body.idToken) {
-        const decodedToken = await auth.verifyIdToken(body.idToken);
-        if (decodedToken.email?.toLowerCase() !== email.toLowerCase()) {
-          return NextResponse.json(
-            { success: false, error: 'Token không hợp lệ' },
-            { status: 401 }
-          );
-        }
-      } else {
-        const { getAdminDb } = await import('@/lib/firebase/admin');
-        const db = getAdminDb();
-        const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
-        const userData = userDoc.data();
-
-        if (userData?.passwordHash) {
-          const isValid = await verifyPassword(password, userData.passwordHash);
+      if (userProfile) {
+        // Verify password
+        if (userProfile.password_hash) {
+          const isValid = await verifyPassword(password, userProfile.password_hash);
           if (!isValid) {
             return NextResponse.json(
               { success: false, error: 'Email hoặc mật khẩu không đúng' },
@@ -85,31 +59,28 @@ export async function POST(request: Request) {
             );
           }
         }
+
+        const role = isAdminRole(userProfile.role) ? 'admin' : 'user';
+        const memberLevel = userProfile.member_level || 'Free';
+
+        await createSession({ email: userProfile.email, role, name: userProfile.name, level: memberLevel });
+
+        return NextResponse.json({
+          success: true,
+          user: {
+            name: userProfile.name,
+            email: userProfile.email,
+            phone: userProfile.phone || '',
+            role,
+            memberLevel,
+          },
+        });
       }
-
-      const role = isAdminRole(userProfile.role) ? 'admin' : 'user';
-      const memberLevel = userProfile.memberLevel || 'Free';
-
-      await createSession({ email: userProfile.email, role, name: userProfile.name, level: memberLevel });
-
-      return NextResponse.json({
-        success: true,
-        user: {
-          name: userProfile.name,
-          email: userProfile.email,
-          phone: userProfile.phone || '',
-          role,
-          memberLevel,
-        },
-      });
+      // User not found in Supabase, try fallback
+      console.log('[Login] User not found in Supabase, trying fallback');
     } catch (err) {
-      const errorCode = (err as { code?: string }).code;
-      if (errorCode === 'auth/user-not-found') {
-        console.log('[Login] User not found in Firebase Auth, trying fallback');
-      } else {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        console.warn('[Login] Firebase unavailable, trying Google Sheets fallback:', errMsg);
-      }
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.warn('[Login] Supabase unavailable, trying Google Sheets fallback:', errMsg);
     }
 
     // Method 2: Google Apps Script fallback (reads from Google Sheets)

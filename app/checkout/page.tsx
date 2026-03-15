@@ -251,8 +251,8 @@ function CheckoutContent() {
                   <div className="space-y-2 text-sm">
                     <p className="text-white"><strong>Ngân hàng:</strong> (Liên hệ admin)</p>
                     <p className="text-white"><strong>Số tài khoản:</strong> (Liên hệ admin)</p>
-                    <p className="text-white"><strong>Chủ tài khoản:</strong> WEPOWER ACADEMY</p>
-                    <p className="text-white"><strong>Nội dung:</strong> {formData.phone} WEPOWER</p>
+                    <p className="text-white"><strong>Chủ tài khoản:</strong> WEDU ACADEMY</p>
+                    <p className="text-white"><strong>Nội dung:</strong> {formData.phone} WEDU</p>
                   </div>
                 </div>
               )}

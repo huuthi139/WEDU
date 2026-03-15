@@ -39,7 +39,7 @@ export default function Profile() {
   useEffect(() => {
     if (user) {
       const savedProfile = typeof window !== 'undefined'
-        ? JSON.parse(localStorage.getItem('wepower-profile') || '{}')
+        ? JSON.parse(localStorage.getItem('wedu-profile') || '{}')
         : {};
       setProfileData({
         name: user.name,
@@ -68,7 +68,7 @@ export default function Profile() {
 
   const handleSave = () => {
     // Save extra profile data to localStorage
-    localStorage.setItem('wepower-profile', JSON.stringify({
+    localStorage.setItem('wedu-profile', JSON.stringify({
       phone: profileData.phone,
       bio: profileData.bio,
       location: profileData.location,

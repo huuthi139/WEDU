@@ -1,5 +1,5 @@
 {
-  "name": "wepower-edu-app",
+  "name": "wedu-app",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -16,13 +16,12 @@
     "test:all": "vitest run tests/"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.99.1",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.36.4",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
-    "firebase": "^12.10.0",
-    "firebase-admin": "^13.7.0",
     "jose": "^6.2.1",
     "next": "^14.2.35",
     "react": "^18",

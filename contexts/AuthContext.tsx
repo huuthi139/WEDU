@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Load user from localStorage on mount
   useEffect(() => {
     try {
-      const savedUser = localStorage.getItem('wepower-user');
+      const savedUser = localStorage.getItem('wedu-user');
       if (savedUser) {
         setUser(JSON.parse(savedUser));
       }
@@ -56,9 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Save user to localStorage when it changes (UI display only, not for auth)
   useEffect(() => {
     if (user) {
-      localStorage.setItem('wepower-user', JSON.stringify(user));
+      localStorage.setItem('wedu-user', JSON.stringify(user));
     } else {
-      localStorage.removeItem('wepower-user');
+      localStorage.removeItem('wedu-user');
     }
   }, [user]);
 
@@ -123,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('[AuthProvider] Logout request failed:', error instanceof Error ? error.message : String(error));
     }
     setUser(null);
-    localStorage.removeItem('wepower-user');
+    localStorage.removeItem('wedu-user');
   };
 
   return (

@@ -31,7 +31,7 @@ interface Review {
   courseId: string;
 }
 
-const REVIEWS_STORAGE_KEY = 'wepower-reviews';
+const REVIEWS_STORAGE_KEY = 'wedu-reviews';
 
 function getStoredReviews(courseId: string): Review[] {
   if (typeof window === 'undefined') return [];
@@ -79,7 +79,7 @@ export default function CourseDetail() {
     // Try localStorage first for instant display
     if (typeof window !== 'undefined' && cid) {
       try {
-        const saved = localStorage.getItem(`wepower-chapters-${cid}`);
+        const saved = localStorage.getItem(`wedu-chapters-${cid}`);
         if (saved) {
           setChapters(normalizeChapters(JSON.parse(saved)));
         }
@@ -96,7 +96,7 @@ export default function CourseDetail() {
             const normalized = normalizeChapters(data.chapters);
             setChapters(normalized);
             try {
-              localStorage.setItem(`wepower-chapters-${cid}`, JSON.stringify(normalized));
+              localStorage.setItem(`wedu-chapters-${cid}`, JSON.stringify(normalized));
             } catch (error) {
               console.error('[CourseDetail] localStorage error:', error instanceof Error ? error.message : String(error));
             }
@@ -366,12 +366,12 @@ export default function CourseDetail() {
                     ) : (
                       <>
                         <p>
-                          Khóa học toàn diện được thiết kế bởi đội ngũ chuyên gia tại Wepower Edu App.
+                          Khóa học toàn diện được thiết kế bởi đội ngũ chuyên gia tại WEDU.
                           Với {course.lessonsCount} bài học được sắp xếp khoa học, bạn sẽ từng bước nắm vững
                           kiến thức cần thiết.
                         </p>
                         <p>
-                          Sau khi hoàn thành khóa học, bạn sẽ nhận được chứng chỉ từ Wepower Edu App
+                          Sau khi hoàn thành khóa học, bạn sẽ nhận được chứng chỉ từ WEDU
                           và có thể tự tin áp dụng những gì đã học vào công việc thực tế.
                         </p>
                       </>

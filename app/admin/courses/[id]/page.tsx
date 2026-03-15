@@ -65,7 +65,7 @@ export default function CourseContentPage({ params }: { params: { id: string } }
   const { courses } = useCourses();
   const course = courses.find((c) => c.id === id);
 
-  const storageKey = `wepower-chapters-${id}`;
+  const storageKey = `wedu-chapters-${id}`;
   const [chapters, setChapters] = useState<Chapter[]>(() => {
     if (typeof window !== 'undefined') {
       try {

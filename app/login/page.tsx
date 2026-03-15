@@ -69,7 +69,7 @@ export default function Login() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <Link href="/" className="flex justify-center mb-8">
-          <span className="text-4xl font-bold text-teal tracking-wider">WEPOWER</span>
+          <span className="text-4xl font-bold text-teal tracking-wider">WEDU</span>
         </Link>
 
         {/* Login Card */}

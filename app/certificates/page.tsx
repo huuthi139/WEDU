@@ -65,7 +65,7 @@ function CertificateCard({
     ctx.fillStyle = '#fbbf24';
     ctx.font = 'bold 14px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('WEPOWER EDUCATION', 400, 75);
+    ctx.fillText('WEDU EDUCATION', 400, 75);
 
     // Certificate title
     ctx.fillStyle = '#2dd4bf';
@@ -148,7 +148,7 @@ function CertificateCard({
         <div className="absolute bottom-3 right-3 w-8 h-8 border-b-2 border-r-2 border-gold/40"></div>
 
         <div className="text-center">
-          <p className="text-gold text-xs font-bold tracking-[0.3em] uppercase mb-3">WEPOWER Education</p>
+          <p className="text-gold text-xs font-bold tracking-[0.3em] uppercase mb-3">WEDU Education</p>
           <h3 className="text-teal text-lg font-bold mb-1">CHỨNG NHẬN HOÀN THÀNH</h3>
           <div className="w-32 h-0.5 bg-gold/40 mx-auto mb-4"></div>
 

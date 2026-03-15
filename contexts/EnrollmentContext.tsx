@@ -39,9 +39,9 @@ interface EnrollmentContextType {
 
 const EnrollmentContext = createContext<EnrollmentContextType | undefined>(undefined);
 
-const STORAGE_KEY_ENROLLMENTS = 'wepower-enrollments';
-const STORAGE_KEY_ORDERS = 'wepower-orders';
-const STORAGE_KEY_STREAK = 'wepower-streak';
+const STORAGE_KEY_ENROLLMENTS = 'wedu-enrollments';
+const STORAGE_KEY_ORDERS = 'wedu-orders';
+const STORAGE_KEY_STREAK = 'wedu-streak';
 
 export function EnrollmentProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();

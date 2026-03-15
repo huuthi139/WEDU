@@ -164,7 +164,7 @@ async function fetchChapterStats(timeoutMs = 12000): Promise<Record<string, { le
 // In-memory cache to avoid hitting Google Sheets on every request
 let cachedCourses: any[] | null = null;
 let cacheTimestamp = 0;
-const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const CACHE_TTL_MS = 30 * 1000; // 30 seconds
 
 // Map CSV row to course object
 function rowToCourse(cols: string[], chapterStats: Record<string, { lessonsCount: number; duration: number }>) {
@@ -183,7 +183,7 @@ function rowToCourse(cols: string[], chapterStats: Record<string, { lessonsCount
     thumbnail: cols[COL.THUMBNAIL] || '',
     title: cols[COL.TITLE] || '',
     description: cols[COL.DESCRIPTION] || '',
-    instructor: cols[COL.INSTRUCTOR] || 'Wepower Edu App',
+    instructor: cols[COL.INSTRUCTOR] || 'WEDU',
     price,
     originalPrice,
     rating,
@@ -233,7 +233,7 @@ async function fetchAndParseCourses() {
         thumbnail: String(c.Thumbnail || c.thumbnail || ''),
         title: String(c.Title || c.title || ''),
         description: String(c.Description || c.description || ''),
-        instructor: String(c.Instructor || c.instructor || 'Wepower Edu App'),
+        instructor: String(c.Instructor || c.instructor || 'WEDU'),
         price: Number(c.Price || c.price || 0),
         originalPrice: c.OriginalPrice || c.originalPrice ? Number(c.OriginalPrice || c.originalPrice) : undefined,
         rating: Number(c.Rating || c.rating || 0),
@@ -266,7 +266,7 @@ export async function GET() {
     // Serve from cache if still fresh
     if (cachedCourses && now - cacheTimestamp < CACHE_TTL_MS) {
       const response = NextResponse.json({ success: true, courses: cachedCourses });
-      response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=300');
+      response.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
       return response;
     }
 
@@ -282,7 +282,7 @@ export async function GET() {
     cacheTimestamp = now;
 
     const response = NextResponse.json({ success: true, courses });
-    response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=300');
+    response.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
     return response;
   } catch (error) {
     console.error('Courses API error:', error);

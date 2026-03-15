@@ -22,7 +22,7 @@ async function safeJsonParse(res: Response): Promise<any | null> {
 /** Verify admin access via JWT session cookie */
 async function verifyAdmin(request: NextRequest): Promise<boolean> {
   try {
-    const token = request.cookies.get('wepower-token')?.value;
+    const token = request.cookies.get('wedu-token')?.value;
     if (!token) return false;
     const secret = process.env.JWT_SECRET;
     if (!secret || secret.length < 32) return false;
@@ -36,13 +36,8 @@ async function verifyAdmin(request: NextRequest): Promise<boolean> {
 }
 
 export async function GET(request: NextRequest) {
-  // Check admin access - try JWT first, then fall back to checking
-  // the client-provided role header (for when JWT is not available)
   const isAdmin = await verifyAdmin(request);
 
-  // If JWT verification failed, check if the client is sending admin role
-  // This is less secure but allows the admin page to work when JWT_SECRET
-  // is not configured. The data (user list) is not sensitive (no passwords).
   if (!isAdmin) {
     const clientRole = request.headers.get('x-user-role');
     if (!clientRole || !isAdminRole(clientRole)) {
@@ -53,26 +48,22 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Method 1: Try Firebase Firestore
+  // Method 1: Try Supabase
   try {
-    const { getAdminDb } = await import('@/lib/firebase/admin');
-    const db = getAdminDb();
-    const snapshot = await db.collection('users').get();
+    const { getAllUsers } = await import('@/lib/supabase/users');
+    const allUsers = await getAllUsers();
 
-    const users = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        Email: data.email || '',
-        Role: data.role || 'user',
-        'Tên': data.name || '',
-        Level: data.memberLevel || 'Free',
-        Phone: data.phone || '',
-      };
-    });
+    const users = allUsers.map(u => ({
+      Email: u.email || '',
+      Role: u.role || 'user',
+      'Tên': u.name || '',
+      Level: u.member_level || 'Free',
+      Phone: u.phone || '',
+    }));
 
     return NextResponse.json({ success: true, users });
   } catch (err) {
-    console.warn('[Users] Firebase unavailable, trying Google Sheets fallback:', err instanceof Error ? err.message : err);
+    console.warn('[Users] Supabase unavailable, trying Google Sheets fallback:', err instanceof Error ? err.message : err);
   }
 
   // Method 2: Google Apps Script fallback (reads from Google Sheets Users tab)
@@ -86,7 +77,6 @@ export async function GET(request: NextRequest) {
       const data = await safeJsonParse(res);
 
       if (data?.success && Array.isArray(data.users)) {
-        // Map Google Sheets format to expected format
         const users = data.users.map((u: Record<string, string>) => ({
           Email: u.Email || '',
           Role: u.Role || 'user',
