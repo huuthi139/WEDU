@@ -183,7 +183,7 @@ export default function AdminDashboard() {
       const res = await fetch('/api/admin/sync-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tables: ['orders', 'enrollments', 'reviews', 'chapters'] }),
+        body: JSON.stringify({ tables: ['courses', 'orders', 'enrollments', 'reviews', 'chapters'] }),
       });
       const data = await res.json();
       if (data.success) {
@@ -712,7 +712,7 @@ export default function AdminDashboard() {
                   ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-wait'
                   : 'bg-white/5 text-gray-300 border border-white/10 hover:border-amber-500/30 hover:text-amber-400'
               }`}
-              title={syncMessage || (syncCounts ? `Supabase: ${syncCounts.orders} orders, ${syncCounts.enrollments} enrollments, ${syncCounts.reviews} reviews, ${syncCounts.chapters} chapters` : 'Sync dữ liệu từ Google Sheets lên Supabase')}
+              title={syncMessage || (syncCounts ? `Supabase: ${syncCounts.courses} courses, ${syncCounts.orders} orders, ${syncCounts.enrollments} enrollments, ${syncCounts.reviews} reviews, ${syncCounts.chapters} chapters` : 'Sync dữ liệu từ Google Sheets lên Supabase')}
             >
               {syncStatus === 'syncing' ? (
                 <>

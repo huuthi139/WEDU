@@ -230,6 +230,51 @@ async function syncReviews(sheetId: string): Promise<{ added: number; skipped: n
   return stats;
 }
 
+async function syncCourses(): Promise<{ added: number; skipped: number; errors: number }> {
+  const supabase = getSupabaseAdmin();
+  const stats = { added: 0, skipped: 0, errors: 0 };
+
+  // Import fallback courses as seed data
+  const { FALLBACK_COURSES } = await import('@/lib/fallback-data');
+
+  for (const course of FALLBACK_COURSES) {
+    // Check if already exists
+    const { data: existing } = await supabase
+      .from('courses')
+      .select('id')
+      .eq('id', course.id)
+      .limit(1)
+      .single();
+
+    if (existing) { stats.skipped++; continue; }
+
+    const { error } = await supabase.from('courses').insert({
+      id: course.id,
+      title: course.title,
+      description: course.description || '',
+      thumbnail: course.thumbnail || '',
+      instructor: course.instructor || 'WEDU',
+      category: course.category || '',
+      price: course.price ?? 0,
+      original_price: course.originalPrice ?? null,
+      rating: course.rating ?? 0,
+      reviews_count: course.reviewsCount ?? 0,
+      enrollments_count: course.enrollmentsCount ?? 0,
+      duration: course.duration ?? 0,
+      lessons_count: course.lessonsCount ?? 0,
+      badge: course.badge || null,
+      member_level: course.memberLevel || 'Free',
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) { stats.errors++; console.error('[SyncCourses] Insert error:', error.message); }
+    else { stats.added++; }
+  }
+
+  return stats;
+}
+
 async function syncChapters(scriptUrl: string): Promise<{ added: number; skipped: number; errors: number }> {
   const supabase = getSupabaseAdmin();
   const stats = { added: 0, skipped: 0, errors: 0 };
@@ -349,7 +394,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    const tables = body.tables || ['orders', 'enrollments', 'reviews', 'chapters'];
+    const tables = body.tables || ['courses', 'orders', 'enrollments', 'reviews', 'chapters'];
+
+    // Sync courses from fallback data (seed)
+    if (tables.includes('courses')) {
+      results.courses = await syncCourses();
+    }
 
     // Sync orders from CSV
     if (sheetId && tables.includes('orders')) {
@@ -397,7 +447,8 @@ export async function GET(request: NextRequest) {
 
   const supabase = getSupabaseAdmin();
 
-  const [orders, enrollments, reviews, chapters] = await Promise.all([
+  const [courses, orders, enrollments, reviews, chapters] = await Promise.all([
+    supabase.from('courses').select('id', { count: 'exact', head: true }).eq('is_active', true),
     supabase.from('orders').select('id', { count: 'exact', head: true }),
     supabase.from('enrollments').select('id', { count: 'exact', head: true }),
     supabase.from('reviews').select('id', { count: 'exact', head: true }),
@@ -407,6 +458,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     success: true,
     counts: {
+      courses: courses.count || 0,
       orders: orders.count || 0,
       enrollments: enrollments.count || 0,
       reviews: reviews.count || 0,
