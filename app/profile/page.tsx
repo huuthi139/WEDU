@@ -12,7 +12,7 @@ import { useEnrollment } from '@/contexts/EnrollmentContext';
 
 export default function Profile() {
   const { showToast } = useToast();
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, updateUser } = useAuth();
   const { enrollments, completedCoursesCount, totalHoursLearned } = useEnrollment();
   const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
@@ -42,7 +42,7 @@ export default function Profile() {
         ? JSON.parse(localStorage.getItem('wedu-profile') || '{}')
         : {};
       setProfileData({
-        name: user.name,
+        name: savedProfile.name || user.name,
         email: user.email,
         phone: user.phone || savedProfile.phone || '',
         bio: savedProfile.bio || 'Yêu thích học tập và phát triển bản thân thông qua các khóa học trực tuyến.',
@@ -69,11 +69,14 @@ export default function Profile() {
   const handleSave = () => {
     // Save extra profile data to localStorage
     localStorage.setItem('wedu-profile', JSON.stringify({
+      name: profileData.name,
       phone: profileData.phone,
       bio: profileData.bio,
       location: profileData.location,
       occupation: profileData.occupation,
     }));
+    // Update user context so name persists across the app
+    updateUser({ name: profileData.name, phone: profileData.phone });
     showToast('Đã cập nhật hồ sơ thành công!', 'success');
     setIsEditing(false);
   };
