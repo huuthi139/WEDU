@@ -13,29 +13,59 @@ async function syncToGoogleSheets(params: { name: string; email: string; passwor
     console.warn('[Register] GOOGLE_SCRIPT_URL not set, skipping Sheet sync');
     return;
   }
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), GAS_TIMEOUT);
 
-    // Must use GET — GAS 302-redirects POST→GET, which loses the request body
-    const qs = new URLSearchParams({
-      action: 'register',
-      name: params.name,
-      email: params.email,
-      passwordHash: params.passwordHash,
-      phone: params.phone,
-    });
-    const res = await fetch(`${scriptUrl}?${qs.toString()}`, {
-      redirect: 'follow',
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
+  // Retry up to 2 times with backoff
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (attempt > 0) {
+        await new Promise(r => setTimeout(r, 2000)); // 2s backoff on retry
+        console.log(`[Register] Google Sheets sync retry attempt ${attempt + 1}`);
+      }
 
-    const text = await res.text();
-    console.log('[Register] Google Sheets sync response:', res.status, text.slice(0, 200));
-  } catch (err) {
-    console.warn('[Register] Google Sheets sync failed:', err instanceof Error ? err.message : err);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), GAS_TIMEOUT);
+
+      // Must use GET — GAS 302-redirects POST→GET, which loses the request body
+      const qs = new URLSearchParams({
+        action: 'register',
+        name: params.name,
+        email: params.email,
+        passwordHash: params.passwordHash,
+        phone: params.phone,
+      });
+      const url = `${scriptUrl}?${qs.toString()}`;
+      console.log('[Register] Syncing to Google Sheets:', params.email);
+
+      const res = await fetch(url, {
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      const text = await res.text();
+      console.log('[Register] Google Sheets sync response:', res.status, text.slice(0, 300));
+
+      // Check if the response indicates success
+      try {
+        const json = JSON.parse(text);
+        if (json.success) {
+          console.log('[Register] Google Sheets sync successful for', params.email);
+          return; // Success, no need to retry
+        }
+        console.warn('[Register] Google Sheets sync returned error:', json.error);
+      } catch {
+        // Non-JSON response, might still be OK if status is 200
+        if (res.ok) {
+          console.log('[Register] Google Sheets sync completed (non-JSON response) for', params.email);
+          return;
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[Register] Google Sheets sync failed (attempt ${attempt + 1}):`, msg);
+    }
   }
+  console.error('[Register] Google Sheets sync failed after all retries for', params.email);
 }
 
 /** Fetch with timeout to prevent hanging requests */
