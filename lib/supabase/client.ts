@@ -12,8 +12,12 @@ export function getSupabaseAdmin(): SupabaseClient {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !serviceKey) {
+    const missing: string[] = [];
+    if (!url) missing.push('NEXT_PUBLIC_SUPABASE_URL');
+    if (!serviceKey) missing.push('SUPABASE_SERVICE_ROLE_KEY');
     throw new Error(
-      '[Supabase] Missing required env vars: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY'
+      `[Supabase] Thiếu biến môi trường: ${missing.join(', ')}. ` +
+      `Vui lòng cấu hình trong Vercel → Project Settings → Environment Variables rồi redeploy.`
     );
   }
 
