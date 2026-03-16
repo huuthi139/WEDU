@@ -71,17 +71,14 @@ export async function POST(request: NextRequest) {
       is_active: body.isActive !== false,
     });
 
-    if (!course) {
-      return NextResponse.json({ success: false, error: 'Không thể lưu khóa học' }, { status: 500 });
-    }
-
     // Invalidate public courses cache so next fetch returns fresh data
     invalidateCoursesCache();
 
     return NextResponse.json({ success: true, course });
   } catch (err) {
-    console.error('[Admin Courses] POST error:', err instanceof Error ? err.message : err);
-    return NextResponse.json({ success: false, error: 'Lỗi hệ thống' }, { status: 500 });
+    const message = err instanceof Error ? err.message : 'Lỗi hệ thống';
+    console.error('[Admin Courses] POST error:', message);
+    return NextResponse.json({ success: false, error: `Không thể lưu khóa học: ${message}` }, { status: 500 });
   }
 }
 

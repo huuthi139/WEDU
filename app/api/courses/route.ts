@@ -13,7 +13,7 @@ export async function GET() {
     const cached = getCachedCourses();
     if (cached.fresh && cached.courses) {
       const response = NextResponse.json({ success: true, courses: cached.courses });
-      response.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+      response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
       return response;
     }
 
@@ -55,7 +55,7 @@ export async function GET() {
     setCachedCourses(courses);
 
     const response = NextResponse.json({ success: true, courses });
-    response.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+    response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     return response;
   } catch (error) {
     console.error('Courses API error:', error);
@@ -63,7 +63,7 @@ export async function GET() {
     const cached = getCachedCourses();
     if (cached.courses) {
       const response = NextResponse.json({ success: true, courses: cached.courses });
-      response.headers.set('Cache-Control', 'public, s-maxage=60');
+      response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
       return response;
     }
     return NextResponse.json({ success: true, courses: FALLBACK_COURSES });

@@ -384,7 +384,9 @@ export default function AdminDashboard() {
   }, [fetchStudents]);
 
   // Save a single course to Supabase via API
-  const saveCourseToAPI = useCallback(async (course: Course) => {
+  const [courseError, setCourseError] = useState<string | null>(null);
+
+  const saveCourseToAPI = useCallback(async (course: Course): Promise<boolean> => {
     try {
       const savedUser = localStorage.getItem('wedu-user');
       const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
@@ -407,11 +409,18 @@ export default function AdminDashboard() {
           lessonsCount: course.lessonsCount,
           badge: course.badge,
           memberLevel: course.memberLevel,
+          isActive: true,
         }),
       });
       const data = await res.json();
+      if (!data.success) {
+        console.error('[Admin] Save course failed:', data.error);
+        setCourseError(data.error || 'Không thể lưu khóa học');
+      }
       return data.success;
-    } catch {
+    } catch (err) {
+      console.error('[Admin] Save course error:', err);
+      setCourseError('Lỗi kết nối - không thể lưu');
       return false;
     }
   }, []);
@@ -592,6 +601,7 @@ export default function AdminDashboard() {
     if (!courseForm.title.trim() || !courseForm.category.trim()) return;
 
     setSaveStatus('saving');
+    setCourseError(null);
 
     let ok = false;
 
@@ -636,8 +646,9 @@ export default function AdminDashboard() {
     setSaveStatus(ok ? 'saved' : 'error');
 
     // Refetch from Supabase so context stays in sync (cache was invalidated server-side)
+    // Small delay to ensure Supabase write has propagated
     if (ok) {
-      refetchCourses();
+      setTimeout(() => refetchCourses(), 500);
     }
 
     setTimeout(() => setSaveStatus('idle'), 2500);
@@ -800,6 +811,23 @@ export default function AdminDashboard() {
             </Link>
           </div>
         </div>
+
+        {/* Error banner */}
+        {courseError && (
+          <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-red-400 text-sm">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <span>{courseError}</span>
+            </div>
+            <button onClick={() => setCourseError(null)} className="text-red-400 hover:text-red-300">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="border-b border-white/10 mb-8">

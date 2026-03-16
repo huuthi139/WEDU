@@ -126,8 +126,8 @@ export async function upsertCourse(course: {
     .single();
 
   if (error) {
-    console.error('[Supabase Courses] Upsert failed:', error.message);
-    return null;
+    console.error('[Supabase Courses] Upsert failed:', error.message, error.details, error.hint);
+    throw new Error(error.message);
   }
   return data as SupabaseCourse;
 }

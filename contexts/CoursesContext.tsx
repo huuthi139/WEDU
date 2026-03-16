@@ -21,7 +21,7 @@ export function CoursesProvider({ children }: { children: ReactNode }) {
   const fetchCourses = () => {
     setIsLoading(true);
     setError(null);
-    fetch('/api/courses')
+    fetch('/api/courses', { cache: 'no-store' })
       .then(res => res.json())
       .then(data => {
         if (data.success && Array.isArray(data.courses)) {
