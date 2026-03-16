@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/Button';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { useCourses } from '@/contexts/CoursesContext';
-import { useEnrollment, type Order } from '@/contexts/EnrollmentContext';
 import type { Course } from '@/lib/mockData';
 import type { MemberLevel } from '@/lib/mockData';
 import { formatPrice, formatDuration } from '@/lib/utils';
@@ -125,19 +124,96 @@ export default function AdminDashboard() {
 
   // ------- Course CRUD state -------
   const { courses: sheetCourses } = useCourses();
-  const { orders: enrollmentOrders, updateOrderStatus } = useEnrollment();
+  // ------- Orders from Supabase -------
+  const [supabaseOrders, setSupabaseOrders] = useState<{ id: string; name: string; email: string; course: string; amount: number; status: string; date: string; method: string }[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
-  // Map enrollment orders for admin display
-  const recentOrders = enrollmentOrders.map(o => ({
-    id: o.id,
-    name: o.name,
-    email: o.email,
-    course: o.courses.map(c => c.title).join(', '),
-    amount: o.total,
-    status: o.status,
-    date: new Date(o.date).toLocaleDateString('vi-VN'),
-    method: o.paymentMethod === 'bank_transfer' ? 'Chuyển khoản' : o.paymentMethod === 'momo' ? 'MoMo' : 'VNPay',
-  }));
+  const fetchOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const res = await fetch('/api/admin/orders', { cache: 'no-store' });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.orders)) {
+        setSupabaseOrders(data.orders.map((o: any) => ({
+          id: o.id,
+          name: o.name,
+          email: o.email,
+          course: o.course,
+          amount: o.amount,
+          status: o.status,
+          date: o.date ? new Date(o.date).toLocaleDateString('vi-VN') : '-',
+          method: o.method,
+        })));
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to fetch orders:', err);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
+
+  const recentOrders = supabaseOrders;
+
+  const handleUpdateOrderStatus = useCallback(async (orderId: string, status: string) => {
+    // Update locally first
+    setSupabaseOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+    // Update in Supabase
+    try {
+      await fetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, status }),
+      });
+    } catch (err) {
+      console.error('[Admin] Failed to update order status:', err);
+    }
+  }, []);
+
+  // ------- Sync from Google Sheets -------
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
+  const [syncMessage, setSyncMessage] = useState('');
+  const [syncCounts, setSyncCounts] = useState<Record<string, number> | null>(null);
+
+  const handleSyncFromSheets = useCallback(async () => {
+    setSyncStatus('syncing');
+    setSyncMessage('Đang đồng bộ dữ liệu từ Google Sheets...');
+    try {
+      const res = await fetch('/api/admin/sync-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tables: ['orders', 'enrollments', 'reviews', 'chapters'] }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSyncStatus('done');
+        setSyncMessage(data.message);
+        // Refresh orders after sync
+        fetchOrders();
+        // Fetch updated counts
+        fetchSyncCounts();
+      } else {
+        setSyncStatus('error');
+        setSyncMessage(data.error || 'Sync thất bại');
+      }
+    } catch (err) {
+      setSyncStatus('error');
+      setSyncMessage('Lỗi kết nối');
+    }
+    setTimeout(() => setSyncStatus('idle'), 5000);
+  }, [fetchOrders]);
+
+  const fetchSyncCounts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/sync-data', { cache: 'no-store' });
+      const data = await res.json();
+      if (data.success) setSyncCounts(data.counts);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { fetchSyncCounts(); }, [fetchSyncCounts]);
+
   const [courses, setCourses] = useState<Course[]>([]);
   const [showCourseModal, setShowCourseModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
@@ -388,7 +464,7 @@ export default function AdminDashboard() {
   const registeredCount = students.length;
 
   // Học viên = users who have enrolled in at least one course or appear in orders
-  const orderEmails = new Set(enrollmentOrders.map(o => o.email.toLowerCase()));
+  const orderEmails = new Set(supabaseOrders.map(o => o.email.toLowerCase()));
   const actualStudentsCount = students.filter(
     s => s.enrolledCourses.length > 0 || orderEmails.has(s.email.toLowerCase())
   ).length;
@@ -623,6 +699,45 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {/* Sync from Google Sheets button */}
+            <button
+              onClick={handleSyncFromSheets}
+              disabled={syncStatus === 'syncing'}
+              className={`inline-flex items-center gap-2 h-10 px-4 rounded-lg font-bold text-sm transition-all duration-200 ${
+                syncStatus === 'done'
+                  ? 'bg-green-500/15 text-green-400 border border-green-500/30'
+                  : syncStatus === 'error'
+                  ? 'bg-red-500/15 text-red-400 border border-red-500/30'
+                  : syncStatus === 'syncing'
+                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-wait'
+                  : 'bg-white/5 text-gray-300 border border-white/10 hover:border-amber-500/30 hover:text-amber-400'
+              }`}
+              title={syncMessage || (syncCounts ? `Supabase: ${syncCounts.orders} orders, ${syncCounts.enrollments} enrollments, ${syncCounts.reviews} reviews, ${syncCounts.chapters} chapters` : 'Sync dữ liệu từ Google Sheets lên Supabase')}
+            >
+              {syncStatus === 'syncing' ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Đang sync...
+                </>
+              ) : syncStatus === 'done' ? (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Đã sync
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Sync GSheet
+                </>
+              )}
+            </button>
             <button
               onClick={handleManualSave}
               disabled={saveStatus === 'saving'}
@@ -746,7 +861,7 @@ export default function AdminDashboard() {
         {activeTab === 'orders' && (
           <OrdersTab
             recentOrders={recentOrders}
-            updateOrderStatus={updateOrderStatus}
+            updateOrderStatus={handleUpdateOrderStatus}
           />
         )}
 
