@@ -27,12 +27,14 @@ interface StudentsTabProps {
   students: Student[];
   filteredStudents: Student[];
   studentsLoading: boolean;
+  studentsError: string | null;
   studentFilter: 'all' | MemberLevel;
   setStudentFilter: (filter: 'all' | MemberLevel) => void;
   expandedStudent: string | null;
   setExpandedStudent: (id: string | null) => void;
   setShowAddCourseModal: (studentId: string | null) => void;
   handleRemoveCourse: (studentId: string, courseId: string) => void;
+  onRefresh: () => void;
   LevelBadge: React.ComponentType<{ level: MemberLevel }>;
 }
 
@@ -40,31 +42,63 @@ export function StudentsTab({
   students,
   filteredStudents,
   studentsLoading,
+  studentsError,
   studentFilter,
   setStudentFilter,
   expandedStudent,
   setExpandedStudent,
   setShowAddCourseModal,
   handleRemoveCourse,
+  onRefresh,
   LevelBadge,
 }: StudentsTabProps) {
   return (
     <div className="space-y-6">
-      {/* Filter */}
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-gray-400">Lọc theo hạng tài khoản:</span>
-        {(['all', 'Free', 'Premium', 'VIP'] as const).map(f => (
-          <button
-            key={f}
-            onClick={() => setStudentFilter(f)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-              studentFilter === f ? 'bg-teal text-white' : 'bg-white/5 text-gray-400 hover:text-white'
-            }`}
-          >
-            {f === 'all' ? 'Tất cả' : f} {f !== 'all' && `(${students.filter(s => s.memberLevel === f).length})`}
-          </button>
-        ))}
+      {/* Filter + Refresh */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-400">Lọc theo hạng tài khoản:</span>
+          {(['all', 'Free', 'Premium', 'VIP'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setStudentFilter(f)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                studentFilter === f ? 'bg-teal text-white' : 'bg-white/5 text-gray-400 hover:text-white'
+              }`}
+            >
+              {f === 'all' ? 'Tất cả' : f} {f !== 'all' && `(${students.filter(s => s.memberLevel === f).length})`}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={studentsLoading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+        >
+          <svg className={`w-3.5 h-3.5 ${studentsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Làm mới
+        </button>
       </div>
+
+      {/* Error message */}
+      {studentsError && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <svg className="w-5 h-5 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-sm text-red-300">{studentsError}</span>
+          </div>
+          <button
+            onClick={onRefresh}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
 
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
         <div className="p-6 border-b border-white/[0.06]">
@@ -89,6 +123,13 @@ export function StudentsTab({
               </tr>
             </thead>
             <tbody>
+              {filteredStudents.length === 0 && !studentsLoading && (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center text-gray-500 text-sm">
+                    {studentsError ? 'Không thể tải dữ liệu học viên.' : 'Chưa có học viên nào.'}
+                  </td>
+                </tr>
+              )}
               {filteredStudents.map(student => {
                 const isExpanded = expandedStudent === student.id;
 

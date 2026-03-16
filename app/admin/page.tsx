@@ -152,97 +152,115 @@ export default function AdminDashboard() {
   // ------- Students state -------
   const [students, setStudents] = useState<Student[]>([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
+  const [studentsError, setStudentsError] = useState<string | null>(null);
   const [studentFilter, setStudentFilter] = useState<'all' | MemberLevel>('all');
   const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
   const [showAddCourseModal, setShowAddCourseModal] = useState<string | null>(null); // studentId
 
-  // Fetch students from Google Sheets
-  useEffect(() => {
-    async function fetchStudents() {
-      setStudentsLoading(true);
-      try {
-        // Try server API first (with admin role header as fallback auth)
-        const savedUser = localStorage.getItem('wedu-user');
-        const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
-
-        const res = await fetch('/api/auth/users', {
-          cache: 'no-store',
-          headers: { 'x-user-role': userRole },
-        });
-        const data = await res.json();
-        if (data.success && Array.isArray(data.users)) {
-          const mapped: Student[] = data.users.map((u: SheetUser, i: number) => ({
-            id: `user-${i + 1}`,
-            name: u['Tên'] || u.Email?.split('@')[0] || 'N/A',
-            email: u.Email || '',
-            phone: u.Phone || '',
-            memberLevel: (['Free', 'Premium', 'VIP'].includes(u.Level) ? u.Level : 'Free') as MemberLevel,
-            enrolledCourses: [],
-            totalSpent: 0,
-            joinDate: '-',
-            status: 'Active' as const,
-            lastActive: '-',
-          }));
-          setStudents(mapped);
-          return;
-        }
-
-        // If API returned 403 or error, try direct Google Apps Script as last resort
-        if (!data.success) {
-          const scriptUrl = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
-          if (scriptUrl) {
-            const gasRes = await fetch(`${scriptUrl}?action=getUsers`, { redirect: 'follow' });
-            const gasData = await gasRes.json();
-            if (gasData.success && Array.isArray(gasData.users)) {
-              const mapped: Student[] = gasData.users.map((u: SheetUser, i: number) => ({
-                id: `user-${i + 1}`,
-                name: u['Tên'] || u.Email?.split('@')[0] || 'N/A',
-                email: u.Email || '',
-                phone: u.Phone || '',
-                memberLevel: (['Free', 'Premium', 'VIP'].includes(u.Level) ? u.Level : 'Free') as MemberLevel,
-                enrolledCourses: [],
-                totalSpent: 0,
-                joinDate: '-',
-                status: 'Active' as const,
-                lastActive: '-',
-              }));
-              setStudents(mapped);
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch students:', err);
-        // Last resort: try direct Google Apps Script from client
-        try {
-          const scriptUrl = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
-          if (scriptUrl) {
-            const gasRes = await fetch(`${scriptUrl}?action=getUsers`, { redirect: 'follow' });
-            const gasData = await gasRes.json();
-            if (gasData.success && Array.isArray(gasData.users)) {
-              const mapped: Student[] = gasData.users.map((u: SheetUser, i: number) => ({
-                id: `user-${i + 1}`,
-                name: u['Tên'] || u.Email?.split('@')[0] || 'N/A',
-                email: u.Email || '',
-                phone: u.Phone || '',
-                memberLevel: (['Free', 'Premium', 'VIP'].includes(u.Level) ? u.Level : 'Free') as MemberLevel,
-                enrolledCourses: [],
-                totalSpent: 0,
-                joinDate: '-',
-                status: 'Active' as const,
-                lastActive: '-',
-              }));
-              setStudents(mapped);
-            }
-          }
-        } catch (fallbackErr) {
-          console.error('Fallback student fetch also failed:', fallbackErr);
-        }
-      } finally {
-        setStudentsLoading(false);
-      }
-    }
-    fetchStudents();
+  /** Map raw user rows to Student objects */
+  const mapUsersToStudents = useCallback((users: SheetUser[]): Student[] => {
+    return users.map((u: SheetUser, i: number) => ({
+      id: `user-${i + 1}`,
+      name: u['Tên'] || u.Email?.split('@')[0] || 'N/A',
+      email: u.Email || '',
+      phone: u.Phone || '',
+      memberLevel: (['Free', 'Premium', 'VIP'].includes(u.Level) ? u.Level : 'Free') as MemberLevel,
+      enrolledCourses: [],
+      totalSpent: 0,
+      joinDate: '-',
+      status: 'Active' as const,
+      lastActive: '-',
+    }));
   }, []);
+
+  /** Fetch students from API with fallback to direct GAS */
+  const fetchStudents = useCallback(async () => {
+    setStudentsLoading(true);
+    setStudentsError(null);
+    const errors: string[] = [];
+
+    try {
+      // Try server API first (with admin role header as fallback auth)
+      const savedUser = localStorage.getItem('wedu-user');
+      const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
+
+      // Try POST first (more reliable for sending auth headers), then GET as fallback
+      let data: { success?: boolean; users?: SheetUser[]; error?: string } | null = null;
+
+      try {
+        const res = await fetch('/api/auth/users', {
+          method: 'POST',
+          cache: 'no-store',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-role': userRole,
+          },
+        });
+        data = await res.json();
+      } catch {
+        // POST failed, try GET
+        try {
+          const res = await fetch('/api/auth/users', {
+            cache: 'no-store',
+            headers: { 'x-user-role': userRole },
+          });
+          data = await res.json();
+        } catch (getErr) {
+          errors.push(`API: ${getErr instanceof Error ? getErr.message : 'network error'}`);
+        }
+      }
+
+      if (data?.success && Array.isArray(data.users) && data.users.length > 0) {
+        setStudents(mapUsersToStudents(data.users));
+        return;
+      }
+
+      if (data?.error) {
+        errors.push(`API: ${data.error}`);
+      }
+
+      // If API returned 403, empty, or error, try direct Google Apps Script as last resort
+      const scriptUrl = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
+      if (scriptUrl) {
+        try {
+          const gasRes = await fetch(`${scriptUrl}?action=getUsers`, {
+            redirect: 'follow',
+            cache: 'no-store',
+          });
+          const gasText = await gasRes.text();
+          let gasData: { success?: boolean; users?: SheetUser[] } | null = null;
+          try {
+            gasData = JSON.parse(gasText);
+          } catch {
+            errors.push('GAS: invalid JSON response');
+          }
+
+          if (gasData?.success && Array.isArray(gasData.users) && gasData.users.length > 0) {
+            setStudents(mapUsersToStudents(gasData.users));
+            return;
+          }
+          errors.push('GAS: 0 users returned');
+        } catch (gasErr) {
+          errors.push(`GAS: ${gasErr instanceof Error ? gasErr.message : 'network error'}`);
+        }
+      }
+
+      // If we got here, no data from any source
+      if (errors.length > 0) {
+        setStudentsError(`Không tải được danh sách học viên: ${errors.join('; ')}`);
+      }
+    } catch (err) {
+      console.error('Failed to fetch students:', err);
+      setStudentsError(`Lỗi tải học viên: ${err instanceof Error ? err.message : 'unknown error'}`);
+    } finally {
+      setStudentsLoading(false);
+    }
+  }, [mapUsersToStudents]);
+
+  // Fetch students on mount
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]);
 
   // Save a single course to Supabase via API
   const saveCourseToAPI = useCallback(async (course: Course) => {
@@ -667,12 +685,14 @@ export default function AdminDashboard() {
             students={students}
             filteredStudents={filteredStudents}
             studentsLoading={studentsLoading}
+            studentsError={studentsError}
             studentFilter={studentFilter}
             setStudentFilter={setStudentFilter}
             expandedStudent={expandedStudent}
             setExpandedStudent={setExpandedStudent}
             setShowAddCourseModal={setShowAddCourseModal}
             handleRemoveCourse={handleRemoveCourse}
+            onRefresh={fetchStudents}
             LevelBadge={LevelBadge}
           />
         )}

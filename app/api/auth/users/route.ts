@@ -84,14 +84,15 @@ async function fetchFromGoogleAppsScript(): Promise<UserRow[] | null> {
   try {
     const res = await fetchWithTimeout(
       `${scriptUrl}?action=getUsers`,
-      { redirect: 'follow' }
+      { redirect: 'follow', cache: 'no-store' }
     );
     const data = await safeJsonParse(res);
 
     if (data?.success && Array.isArray(data.users) && data.users.length > 0) {
+      // Normalize role: 'Student' → 'user' for consistency
       const users: UserRow[] = data.users.map((u: Record<string, string>) => ({
         Email: u.Email || '',
-        Role: u.Role || 'user',
+        Role: normalizeRole(u.Role),
         'Tên': u['Tên'] || '',
         Level: u.Level || 'Free',
         Phone: u.Phone || '',
@@ -104,7 +105,7 @@ async function fetchFromGoogleAppsScript(): Promise<UserRow[] | null> {
       return users;
     }
 
-    console.warn('[Users] Google Apps Script returned empty or invalid data');
+    console.warn('[Users] Google Apps Script returned empty or invalid data:', data?.error || 'no data');
     return null;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -141,7 +142,7 @@ async function fetchFromGoogleSheetsCsv(): Promise<UserRow[] | null> {
 
     const users: UserRow[] = rows.map((row: Record<string, string>) => ({
       Email: row.Email || row.email || '',
-      Role: row.Role || row.role || 'user',
+      Role: normalizeRole(row.Role || row.role),
       'Tên': row['Tên'] || row.name || '',
       Level: row.Level || row.level || 'Free',
       Phone: row.Phone || row.phone || '',
@@ -156,6 +157,16 @@ async function fetchFromGoogleSheetsCsv(): Promise<UserRow[] | null> {
     console.error('[Users] Google Sheets CSV error:', err instanceof Error ? err.message : err);
     return null;
   }
+}
+
+/** Normalize role strings from different sources (e.g. 'Student' → 'user') */
+function normalizeRole(role: string | undefined): string {
+  if (!role) return 'user';
+  const r = role.toLowerCase().trim();
+  if (r === 'admin' || r === 'administrator') return 'admin';
+  if (r === 'sub_admin' || r === 'sub-admin') return 'sub_admin';
+  if (r === 'instructor') return 'instructor';
+  return 'user'; // 'Student', 'student', 'user', or anything else → 'user'
 }
 
 /** Verify admin or sub_admin access via JWT session cookie */
@@ -174,7 +185,8 @@ async function verifyAdmin(request: NextRequest): Promise<boolean> {
   }
 }
 
-export async function GET(request: NextRequest) {
+/** Core handler for fetching users — shared by GET and POST */
+async function handleFetchUsers(request: NextRequest): Promise<NextResponse> {
   const isAdmin = await verifyAdmin(request);
 
   if (!isAdmin) {
@@ -188,29 +200,53 @@ export async function GET(request: NextRequest) {
   }
 
   // Try sources in order: Supabase → Google Apps Script → Google Sheets CSV
-  // Each returns null if it has no data, allowing fallback to next source
+  const errors: string[] = [];
 
   // Method 1: Supabase (primary)
-  const supabaseUsers = await fetchFromSupabase();
-  if (supabaseUsers && supabaseUsers.length > 0) {
-    return NextResponse.json({ success: true, users: supabaseUsers, source: 'supabase' });
+  try {
+    const supabaseUsers = await fetchFromSupabase();
+    if (supabaseUsers && supabaseUsers.length > 0) {
+      return NextResponse.json({ success: true, users: supabaseUsers, source: 'supabase' });
+    }
+    errors.push('Supabase: 0 users');
+  } catch (err) {
+    errors.push(`Supabase: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Method 2: Google Apps Script (secondary)
-  const gasUsers = await fetchFromGoogleAppsScript();
-  if (gasUsers && gasUsers.length > 0) {
-    return NextResponse.json({ success: true, users: gasUsers, source: 'google-apps-script' });
+  try {
+    const gasUsers = await fetchFromGoogleAppsScript();
+    if (gasUsers && gasUsers.length > 0) {
+      return NextResponse.json({ success: true, users: gasUsers, source: 'google-apps-script' });
+    }
+    errors.push('GAS: 0 users');
+  } catch (err) {
+    errors.push(`GAS: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // Method 3: Google Sheets CSV export (tertiary - direct, doesn't need GAS deployment)
-  const csvUsers = await fetchFromGoogleSheetsCsv();
-  if (csvUsers && csvUsers.length > 0) {
-    return NextResponse.json({ success: true, users: csvUsers, source: 'google-sheets-csv' });
+  // Method 3: Google Sheets CSV export (tertiary)
+  try {
+    const csvUsers = await fetchFromGoogleSheetsCsv();
+    if (csvUsers && csvUsers.length > 0) {
+      return NextResponse.json({ success: true, users: csvUsers, source: 'google-sheets-csv' });
+    }
+    errors.push('CSV: 0 users');
+  } catch (err) {
+    errors.push(`CSV: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  console.error('[Users] All data sources returned empty or failed');
+  console.error('[Users] All data sources failed:', errors.join(' | '));
   return NextResponse.json(
-    { success: false, error: 'Không thể tải danh sách học viên', users: [] },
+    { success: false, error: `Không thể tải danh sách học viên (${errors.join('; ')})`, users: [] },
     { status: 503 }
   );
+}
+
+export async function GET(request: NextRequest) {
+  return handleFetchUsers(request);
+}
+
+/** POST handler — same as GET, for environments where GET headers may be stripped */
+export async function POST(request: NextRequest) {
+  return handleFetchUsers(request);
 }

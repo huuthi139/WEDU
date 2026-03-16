@@ -298,7 +298,7 @@ function handleRegister_(data) {
   }
 
   // Thêm user: Email | Password (hashed) | Role | Tên | Level | Enrolled | Completed | Phone
-  sheet.appendRow([email, passwordHash, 'Student', name, 'Free', '', '', phone]);
+  sheet.appendRow([email, passwordHash, 'user', name, 'Free', '', '', phone]);
   Logger.log('New user: ' + email);
 
   return {
