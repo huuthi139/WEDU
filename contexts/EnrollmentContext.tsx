@@ -155,17 +155,20 @@ export function EnrollmentProvider({ children }: { children: ReactNode }) {
     }));
 
     // Update streak
-    try {
-      const streakData = JSON.parse(localStorage.getItem(STORAGE_KEY_STREAK) || '{}');
-      const today = new Date().toISOString().split('T')[0];
-      if (streakData.lastDate !== today) {
-        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-        streakData.count = streakData.lastDate === yesterday ? (streakData.count || 0) + 1 : 1;
-        streakData.lastDate = today;
-        localStorage.setItem(STORAGE_KEY_STREAK, JSON.stringify(streakData));
+    if (typeof window !== 'undefined') {
+      try {
+        const streakData = JSON.parse(localStorage.getItem(STORAGE_KEY_STREAK) || '{}');
+        const today = new Date().toISOString().split('T')[0];
+        if (streakData.lastDate !== today) {
+          const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+          streakData.count = streakData.lastDate === yesterday ? (streakData.count || 0) + 1 : 1;
+          streakData.lastDate = today;
+          localStorage.setItem(STORAGE_KEY_STREAK, JSON.stringify(streakData));
+          setCurrentStreak(streakData.count);
+        }
+      } catch {
+        // localStorage not available
       }
-    } catch (error) {
-      console.error('[EnrollmentProvider] localStorage error:', error instanceof Error ? error.message : String(error));
     }
 
     // Sync progress to server (background, non-blocking)
@@ -203,17 +206,21 @@ export function EnrollmentProvider({ children }: { children: ReactNode }) {
 
   const completedCoursesCount = enrollments.filter(e => e.progress === 100).length;
 
-  let currentStreak = 0;
-  try {
-    const streakData = JSON.parse(localStorage.getItem(STORAGE_KEY_STREAK) || '{}');
-    const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-    if (streakData.lastDate === today || streakData.lastDate === yesterday) {
-      currentStreak = streakData.count || 0;
+  const [currentStreak, setCurrentStreak] = useState(0);
+
+  // Load streak from localStorage (client-side only)
+  useEffect(() => {
+    try {
+      const streakData = JSON.parse(localStorage.getItem(STORAGE_KEY_STREAK) || '{}');
+      const today = new Date().toISOString().split('T')[0];
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      if (streakData.lastDate === today || streakData.lastDate === yesterday) {
+        setCurrentStreak(streakData.count || 0);
+      }
+    } catch {
+      // localStorage not available during SSR
     }
-  } catch (error) {
-    console.error('[EnrollmentProvider] localStorage error:', error instanceof Error ? error.message : String(error));
-  }
+  }, [enrollments]);
 
   return (
     <EnrollmentContext.Provider value={{

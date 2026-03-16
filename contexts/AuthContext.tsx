@@ -55,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Save user to localStorage when it changes (UI display only, not for auth)
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     if (user) {
       localStorage.setItem('wedu-user', JSON.stringify(user));
     } else {
