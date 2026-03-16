@@ -142,13 +142,12 @@ export default function Login() {
                 />
                 <span className="text-sm text-gray-400">Ghi nhớ đăng nhập</span>
               </label>
-              <button
-                type="button"
-                onClick={() => showToast('Tính năng đang phát triển', 'info')}
+              <Link
+                href="/reset-password"
                 className="text-sm text-teal hover:text-teal/80 transition-colors"
               >
                 Quên mật khẩu?
-              </button>
+              </Link>
             </div>
 
             {/* Submit Button */}

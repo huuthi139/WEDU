@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { hashPassword } from '@/lib/auth/password';
 import { createSession } from '@/lib/auth/session';
 import { getLocalUser, createLocalUser, localUserExists } from '@/lib/fallback-data';
+import { sendWelcomeEmail } from '@/lib/email/send';
 
 const GAS_TIMEOUT = 15000; // 15 seconds
 
@@ -85,6 +86,9 @@ export async function POST(request: Request) {
         console.error('[Register] Session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
       }
 
+      // Send welcome email (non-blocking)
+      sendWelcomeEmail(email, name).catch(() => {});
+
       return NextResponse.json({
         success: true,
         user: {
@@ -140,6 +144,9 @@ export async function POST(request: Request) {
             console.error('[Register] Session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
           }
 
+          // Send welcome email (non-blocking)
+          sendWelcomeEmail(email, name).catch(() => {});
+
           return NextResponse.json({
             success: true,
             user: {
@@ -186,6 +193,9 @@ export async function POST(request: Request) {
     } catch (sessionErr) {
       console.error('[Register] Session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
     }
+
+    // Send welcome email (non-blocking)
+    sendWelcomeEmail(email, name).catch(() => {});
 
     return NextResponse.json({
       success: true,
