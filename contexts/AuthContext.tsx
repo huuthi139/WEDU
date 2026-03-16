@@ -1,10 +1,10 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { isAdminRole } from '@/lib/utils/auth';
+import { isAdminRole, isSubAdminRole } from '@/lib/utils/auth';
 
 export type MemberLevel = 'Free' | 'Premium' | 'VIP';
-export type UserRole = 'admin' | 'user';
+export type UserRole = 'admin' | 'sub_admin' | 'instructor' | 'user';
 
 export interface User {
   name: string;
@@ -31,7 +31,7 @@ function normalizeUser(raw: Record<string, string | undefined>): User {
     name: raw.name || '',
     email: raw.email || '',
     phone: raw.phone || '',
-    role: isAdminRole(role) ? 'admin' : 'user',
+    role: isAdminRole(role) ? 'admin' : isSubAdminRole(role) ? 'sub_admin' : (role === 'instructor' ? 'instructor' : 'user') as UserRole,
     memberLevel: (['Free', 'Premium', 'VIP'].includes(memberLevel) ? memberLevel : 'Free') as MemberLevel,
   };
 }

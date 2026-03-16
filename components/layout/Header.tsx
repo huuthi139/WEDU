@@ -144,7 +144,7 @@ export function Header() {
             <Link href="/community" className="text-white/70 hover:text-white transition-colors font-medium">
               Cộng Đồng
             </Link>
-            {user?.role === 'admin' && (
+            {(user?.role === 'admin' || user?.role === 'sub_admin') && (
               <Link href="/admin" className="text-teal hover:text-teal/80 transition-colors font-medium">
                 Admin
               </Link>
@@ -282,7 +282,7 @@ export function Header() {
                   <div className="hidden xl:block">
                     <p className="text-sm text-white font-medium leading-tight">{user.name}</p>
                     <p className="text-[10px] text-gray-400 leading-tight">
-                      {user.role === 'admin' ? 'Admin' : user.memberLevel}
+                      {user.role === 'admin' ? 'Admin' : user.role === 'sub_admin' ? 'Admin phụ' : user.memberLevel}
                     </p>
                   </div>
                 </Link>
@@ -428,7 +428,7 @@ export function Header() {
                   </div>
                   <div>
                     <p className="text-white font-medium">{user.name}</p>
-                    <p className="text-xs text-gray-400">{user.role === 'admin' ? 'Admin' : user.memberLevel}</p>
+                    <p className="text-xs text-gray-400">{user.role === 'admin' ? 'Admin' : user.role === 'sub_admin' ? 'Admin phụ' : user.memberLevel}</p>
                   </div>
                 </div>
               )}
@@ -463,7 +463,7 @@ export function Header() {
                   Chứng chỉ
                 </Link>
               )}
-              {user?.role === 'admin' && (
+              {(user?.role === 'admin' || user?.role === 'sub_admin') && (
                 <Link
                   href="/admin"
                   className="text-teal hover:text-teal/80 transition-colors py-2 font-medium"

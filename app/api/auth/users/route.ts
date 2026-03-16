@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAdminRole } from '@/lib/utils/auth';
+import { isAdminRole, hasAdminAccess } from '@/lib/utils/auth';
 
 const GAS_TIMEOUT = 15000;
 
@@ -19,7 +19,7 @@ async function safeJsonParse(res: Response): Promise<any | null> {
   try { return await res.json(); } catch { return null; }
 }
 
-/** Verify admin access via JWT session cookie */
+/** Verify admin or sub_admin access via JWT session cookie */
 async function verifyAdmin(request: NextRequest): Promise<boolean> {
   try {
     const token = request.cookies.get('wedu-token')?.value;
@@ -29,7 +29,7 @@ async function verifyAdmin(request: NextRequest): Promise<boolean> {
     const { jwtVerify } = await import('jose');
     const { payload } = await jwtVerify(token, new TextEncoder().encode(secret));
     const role = (payload as { role?: string }).role || '';
-    return isAdminRole(role);
+    return hasAdminAccess(role);
   } catch {
     return false;
   }
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
 
   if (!isAdmin) {
     const clientRole = request.headers.get('x-user-role');
-    if (!clientRole || !isAdminRole(clientRole)) {
+    if (!clientRole || !hasAdminAccess(clientRole)) {
       return NextResponse.json(
         { success: false, error: 'Không có quyền truy cập', users: [] },
         { status: 403 }

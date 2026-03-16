@@ -14,8 +14,9 @@ import { OverviewTab } from './_components/tabs/OverviewTab';
 import { CoursesTab } from './_components/tabs/CoursesTab';
 import { StudentsTab } from './_components/tabs/StudentsTab';
 import { OrdersTab } from './_components/tabs/OrdersTab';
+import { StaffTab } from './_components/tabs/StaffTab';
 
-type Tab = 'overview' | 'courses' | 'students' | 'orders';
+type Tab = 'overview' | 'courses' | 'students' | 'orders' | 'staff';
 
 /* ============================================================
    STUDENT INTERFACES & MOCK DATA
@@ -137,14 +138,13 @@ export default function AdminDashboard() {
     date: new Date(o.date).toLocaleDateString('vi-VN'),
     method: o.paymentMethod === 'bank_transfer' ? 'Chuyển khoản' : o.paymentMethod === 'momo' ? 'MoMo' : 'VNPay',
   }));
-  const COURSES_STORAGE_KEY = 'wedu-admin-courses';
   const [courses, setCourses] = useState<Course[]>([]);
   const [showCourseModal, setShowCourseModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [courseForm, setCourseForm] = useState<CourseFormData>(emptyCourseForm);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingCourse, setDeletingCourse] = useState<Course | null>(null);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [thumbnailError, setThumbnailError] = useState<string | null>(null);
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
@@ -244,91 +244,78 @@ export default function AdminDashboard() {
     fetchStudents();
   }, []);
 
-  // Save courses to localStorage
-  const persistCourses = useCallback((data: Course[]) => {
+  // Save a single course to Supabase via API
+  const saveCourseToAPI = useCallback(async (course: Course) => {
     try {
-      localStorage.setItem(COURSES_STORAGE_KEY, JSON.stringify(data));
-      setSaveStatus('saved');
-      setTimeout(() => setSaveStatus('idle'), 2500);
-    } catch (error) {
-      console.error('[AdminDashboard] localStorage save error:', error instanceof Error ? error.message : String(error));
+      const savedUser = localStorage.getItem('wedu-user');
+      const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
+      const res = await fetch('/api/admin/courses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
+        body: JSON.stringify({
+          id: course.id,
+          title: course.title,
+          description: course.description || '',
+          thumbnail: course.thumbnail || '',
+          instructor: course.instructor,
+          category: course.category,
+          price: course.price,
+          originalPrice: course.originalPrice,
+          rating: course.rating,
+          reviewsCount: course.reviewsCount,
+          enrollmentsCount: course.enrollmentsCount,
+          duration: course.duration,
+          lessonsCount: course.lessonsCount,
+          badge: course.badge,
+          memberLevel: course.memberLevel,
+        }),
+      });
+      const data = await res.json();
+      return data.success;
+    } catch {
+      return false;
     }
   }, []);
 
-  // Update courses state + auto-save
+  // Delete a course via API
+  const deleteCourseFromAPI = useCallback(async (courseId: string) => {
+    try {
+      const savedUser = localStorage.getItem('wedu-user');
+      const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
+      const res = await fetch(`/api/admin/courses?id=${courseId}`, {
+        method: 'DELETE',
+        headers: { 'x-user-role': userRole },
+      });
+      const data = await res.json();
+      return data.success;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // Update courses state
   const updateCourses = useCallback((updater: (prev: Course[]) => Course[]) => {
-    setCourses(prev => {
-      const next = updater(prev);
-      persistCourses(next);
-      return next;
-    });
-  }, [persistCourses]);
+    setCourses(prev => updater(prev));
+  }, []);
 
-  // Manual save (for the "Lưu" button)
-  const handleManualSave = useCallback(() => {
-    persistCourses(courses);
-  }, [persistCourses, courses]);
+  // Manual save - sync all courses to Supabase
+  const handleManualSave = useCallback(async () => {
+    setSaveStatus('saving');
+    try {
+      const results = await Promise.all(courses.map(c => saveCourseToAPI(c)));
+      const allOk = results.every(Boolean);
+      setSaveStatus(allOk ? 'saved' : 'error');
+      setTimeout(() => setSaveStatus('idle'), 2500);
+    } catch {
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 2500);
+    }
+  }, [courses, saveCourseToAPI]);
 
-  // Sync courses: always merge Google Sheets data with localStorage edits
-  // This ensures new courses added to the sheet always appear in Admin
+  // Load courses from context (which reads from API → Supabase/Google Sheets)
   useEffect(() => {
     if (sheetCourses.length === 0) return;
-
-    let localEdits: Course[] = [];
-    try {
-      const saved = localStorage.getItem(COURSES_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) localEdits = parsed;
-      }
-    } catch (error) {
-      console.error('[AdminDashboard] localStorage read error:', error instanceof Error ? error.message : String(error));
-    }
-
-    if (localEdits.length === 0) {
-      // No local edits - use sheet data directly
-      setCourses(sheetCourses);
-      return;
-    }
-
-    // Merge: use sheetCourses as source of truth for the list,
-    // overlay local-only edits (title, price, etc.) on top,
-    // and keep any locally-added courses not on the server.
-    const localMap = new Map(localEdits.map(c => [c.id, c]));
-    const merged: Course[] = [];
-    const seenIds = new Set<string>();
-
-    for (const sc of sheetCourses) {
-      seenIds.add(sc.id);
-      const local = localMap.get(sc.id);
-      if (local) {
-        // Keep sheet data but apply local metadata edits
-        merged.push({
-          ...sc,
-          title: local.title || sc.title,
-          instructor: local.instructor || sc.instructor,
-          category: local.category || sc.category,
-          price: local.price !== undefined ? local.price : sc.price,
-          isFree: local.price !== undefined ? local.price === 0 : sc.isFree,
-          thumbnail: local.thumbnail || sc.thumbnail,
-        });
-      } else {
-        merged.push(sc);
-      }
-    }
-
-    // Keep locally-added courses that don't exist on server
-    for (const lc of localEdits) {
-      if (!seenIds.has(lc.id)) {
-        merged.push(lc);
-      }
-    }
-
-    setCourses(merged);
-    // Update localStorage with merged data
-    try { localStorage.setItem(COURSES_STORAGE_KEY, JSON.stringify(merged)); } catch (error) {
-      console.error('[AdminDashboard] localStorage merge error:', error instanceof Error ? error.message : String(error));
-    }
+    setCourses(sheetCourses);
   }, [sheetCourses]);
 
   // ------- Computed values -------
@@ -462,30 +449,29 @@ export default function AdminDashboard() {
     setShowCourseModal(true);
   };
 
-  const handleSaveCourse = () => {
+  const handleSaveCourse = async () => {
     if (!courseForm.title.trim() || !courseForm.category.trim()) return;
+
+    setSaveStatus('saving');
 
     if (editingCourse) {
       // Update existing course
-      updateCourses(prev =>
-        prev.map(c =>
-          c.id === editingCourse.id
-            ? {
-                ...c,
-                title: courseForm.title,
-                instructor: courseForm.instructor,
-                category: courseForm.category,
-                price: courseForm.price,
-                lessonsCount: courseForm.lessonsCount,
-                isFree: courseForm.price === 0,
-                thumbnail: courseForm.thumbnail || c.thumbnail,
-              }
-            : c
-        )
-      );
+      const updatedCourse: Course = {
+        ...editingCourse,
+        title: courseForm.title,
+        instructor: courseForm.instructor,
+        category: courseForm.category,
+        price: courseForm.price,
+        lessonsCount: courseForm.lessonsCount,
+        isFree: courseForm.price === 0,
+        thumbnail: courseForm.thumbnail || editingCourse.thumbnail,
+      };
+      updateCourses(prev => prev.map(c => c.id === editingCourse.id ? updatedCourse : c));
+      const ok = await saveCourseToAPI(updatedCourse);
+      setSaveStatus(ok ? 'saved' : 'error');
     } else {
       // Add new course
-      const newId = String(Math.max(...courses.map(c => parseInt(c.id)), 0) + 1);
+      const newId = String(Math.max(...courses.map(c => parseInt(c.id) || 0), 0) + 1);
       const newCourse: Course = {
         id: newId,
         thumbnail: courseForm.thumbnail || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=450&fit=crop',
@@ -504,8 +490,11 @@ export default function AdminDashboard() {
         memberLevel: 'Free',
       };
       updateCourses(prev => [...prev, newCourse]);
+      const ok = await saveCourseToAPI(newCourse);
+      setSaveStatus(ok ? 'saved' : 'error');
     }
 
+    setTimeout(() => setSaveStatus('idle'), 2500);
     setShowCourseModal(false);
     setEditingCourse(null);
     setCourseForm(emptyCourseForm);
@@ -516,9 +505,10 @@ export default function AdminDashboard() {
     setShowDeleteModal(true);
   };
 
-  const handleDeleteCourse = () => {
+  const handleDeleteCourse = async () => {
     if (!deletingCourse) return;
     updateCourses(prev => prev.filter(c => c.id !== deletingCourse.id));
+    await deleteCourseFromAPI(deletingCourse.id);
     setShowDeleteModal(false);
     setDeletingCourse(null);
   };
@@ -541,6 +531,10 @@ export default function AdminDashboard() {
     {
       key: 'orders', label: 'Đơn hàng',
       icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>,
+    },
+    {
+      key: 'staff', label: 'Nhân sự',
+      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
     },
   ];
 
@@ -568,9 +562,14 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-3">
             <button
               onClick={handleManualSave}
+              disabled={saveStatus === 'saving'}
               className={`inline-flex items-center gap-2 h-10 px-5 rounded-lg font-bold text-sm transition-all duration-200 ${
                 saveStatus === 'saved'
                   ? 'bg-green-500/15 text-green-400 border border-green-500/30'
+                  : saveStatus === 'error'
+                  ? 'bg-red-500/15 text-red-400 border border-red-500/30'
+                  : saveStatus === 'saving'
+                  ? 'bg-teal/50 text-white cursor-wait'
                   : 'bg-teal text-white hover:bg-teal/80 shadow-lg shadow-teal/20'
               }`}
             >
@@ -580,6 +579,21 @@ export default function AdminDashboard() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                   Đã lưu
+                </>
+              ) : saveStatus === 'saving' ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Đang lưu...
+                </>
+              ) : saveStatus === 'error' ? (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01" />
+                  </svg>
+                  Lỗi lưu
                 </>
               ) : (
                 <>
@@ -669,6 +683,11 @@ export default function AdminDashboard() {
             recentOrders={recentOrders}
             updateOrderStatus={updateOrderStatus}
           />
+        )}
+
+        {/* ============ STAFF TAB ============ */}
+        {activeTab === 'staff' && (
+          <StaffTab isMainAdmin={true} />
         )}
       </div>
 

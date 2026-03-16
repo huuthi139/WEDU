@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createSession } from '@/lib/auth/session';
-import { isAdminRole, DEMO_USERS } from '@/lib/utils/auth';
+import { isAdminRole, isSubAdminRole, DEMO_USERS } from '@/lib/utils/auth';
 import { hashPassword, verifyPassword } from '@/lib/auth/password';
 import { getLocalUser } from '@/lib/fallback-data';
 
@@ -60,7 +60,11 @@ export async function POST(request: Request) {
           }
         }
 
-        const role = isAdminRole(userProfile.role) ? 'admin' : 'user';
+        // Preserve the actual role from database (admin, sub_admin, instructor, user)
+        const role = isAdminRole(userProfile.role) ? 'admin'
+          : isSubAdminRole(userProfile.role) ? 'sub_admin'
+          : userProfile.role === 'instructor' ? 'instructor'
+          : userProfile.role || 'user';
         const memberLevel = userProfile.member_level || 'Free';
 
         await createSession({ email: userProfile.email, role, name: userProfile.name, level: memberLevel });

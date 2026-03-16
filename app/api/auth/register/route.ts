@@ -6,6 +6,28 @@ import { sendWelcomeEmail } from '@/lib/email/send';
 
 const GAS_TIMEOUT = 15000; // 15 seconds
 
+/** Sync user to Google Sheets in background (non-blocking) */
+async function syncToGoogleSheets(params: { name: string; email: string; passwordHash: string; phone: string }) {
+  const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
+  if (!scriptUrl) return;
+  try {
+    const qs = new URLSearchParams({
+      action: 'register',
+      name: params.name,
+      email: params.email,
+      passwordHash: params.passwordHash,
+      phone: params.phone,
+    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), GAS_TIMEOUT);
+    await fetch(`${scriptUrl}?${qs.toString()}`, { redirect: 'follow', signal: controller.signal });
+    clearTimeout(timeout);
+    console.log('[Register] Synced user to Google Sheets:', params.email);
+  } catch (err) {
+    console.warn('[Register] Google Sheets sync failed (non-blocking):', err instanceof Error ? err.message : err);
+  }
+}
+
 /** Fetch with timeout to prevent hanging requests */
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = GAS_TIMEOUT): Promise<Response> {
   const controller = new AbortController();
@@ -88,6 +110,9 @@ export async function POST(request: Request) {
 
       // Send welcome email (non-blocking)
       sendWelcomeEmail(email, name).catch(() => {});
+
+      // Dual-write: sync user to Google Sheets in background (non-blocking)
+      syncToGoogleSheets({ name, email, passwordHash: hashedPassword, phone }).catch(() => {});
 
       return NextResponse.json({
         success: true,

@@ -10,7 +10,7 @@ export interface SupabaseUser {
   name: string;
   phone: string;
   password_hash: string;
-  role: 'admin' | 'user';
+  role: 'admin' | 'sub_admin' | 'instructor' | 'user';
   member_level: 'Free' | 'Premium' | 'VIP';
   created_at: string;
   updated_at: string;
@@ -61,7 +61,7 @@ export async function createUserProfile(
     name: data.name,
     phone: data.phone || '',
     password_hash: data.passwordHash,
-    role: data.role === 'admin' ? 'admin' : 'user',
+    role: (['admin', 'sub_admin', 'instructor'].includes(data.role || '') ? data.role : 'user'),
     member_level: (['Free', 'Premium', 'VIP'].includes(data.memberLevel || '') ? data.memberLevel : 'Free'),
     created_at: now,
     updated_at: now,

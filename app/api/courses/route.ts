@@ -198,8 +198,43 @@ function rowToCourse(cols: string[], chapterStats: Record<string, { lessonsCount
   };
 }
 
+/** Fetch courses from Supabase */
+async function fetchSupabaseCourses(): Promise<any[]> {
+  try {
+    const { getAllCourses } = await import('@/lib/supabase/courses');
+    const courses = await getAllCourses();
+    return courses.map(c => ({
+      id: c.id,
+      thumbnail: c.thumbnail || '',
+      title: c.title || '',
+      description: c.description || '',
+      instructor: c.instructor || 'WEDU',
+      price: c.price || 0,
+      originalPrice: c.original_price || undefined,
+      rating: c.rating || 0,
+      reviewsCount: c.reviews_count || 0,
+      enrollmentsCount: c.enrollments_count || 0,
+      duration: c.duration || 0,
+      lessonsCount: c.lessons_count || 0,
+      isFree: (c.price || 0) === 0,
+      badge: c.badge || undefined,
+      category: c.category || '',
+      memberLevel: c.member_level || 'Free',
+    }));
+  } catch (err) {
+    console.warn('[Courses] Supabase unavailable:', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
 async function fetchAndParseCourses() {
-  // Method 1: Google Sheets CSV export
+  // Method 1: Try Supabase first (source of truth for admin-managed courses)
+  const supabaseCourses = await fetchSupabaseCourses();
+  if (supabaseCourses.length > 0) {
+    return supabaseCourses;
+  }
+
+  // Method 2: Google Sheets CSV export (fallback / legacy)
   try {
     const [coursesRes, chapterStats] = await Promise.all([
       fetch(
@@ -213,15 +248,20 @@ async function fetchAndParseCourses() {
     const rows = parseCSVRows(csv);
 
     if (rows.length > 0) {
-      return rows
+      const sheetCourses = rows
         .filter(cols => cols[COL.ID] && cols[COL.TITLE])
         .map(cols => rowToCourse(cols, chapterStats));
+
+      // Sync Google Sheets courses to Supabase in background
+      syncSheetCoursesToSupabase(sheetCourses).catch(() => {});
+
+      return sheetCourses;
     }
   } catch (csvErr) {
     console.warn('[Courses] Google Sheets CSV unavailable:', csvErr instanceof Error ? csvErr.message : csvErr);
   }
 
-  // Method 2: Google Apps Script fallback
+  // Method 3: Google Apps Script fallback
   try {
     const scriptUrl = getScriptUrl();
     const res = await fetch(`${scriptUrl}?action=getCourses`, { redirect: 'follow', cache: 'no-store' });
@@ -252,6 +292,35 @@ async function fetchAndParseCourses() {
   }
 
   return [];
+}
+
+/** Sync Google Sheets courses to Supabase (one-time migration, non-blocking) */
+async function syncSheetCoursesToSupabase(courses: any[]) {
+  try {
+    const { bulkUpsertCourses } = await import('@/lib/supabase/courses');
+    const count = await bulkUpsertCourses(courses.map(c => ({
+      id: c.id,
+      title: c.title,
+      description: c.description,
+      thumbnail: c.thumbnail,
+      instructor: c.instructor,
+      category: c.category,
+      price: c.price,
+      original_price: c.originalPrice,
+      rating: c.rating,
+      reviews_count: c.reviewsCount,
+      enrollments_count: c.enrollmentsCount,
+      duration: c.duration,
+      lessons_count: c.lessonsCount,
+      badge: c.badge,
+      member_level: c.memberLevel,
+    })));
+    if (count > 0) {
+      console.log(`[Courses] Synced ${count} courses from Google Sheets to Supabase`);
+    }
+  } catch (err) {
+    console.warn('[Courses] Supabase sync failed:', err instanceof Error ? err.message : err);
+  }
 }
 
 function isDnsError(err: unknown): boolean {
