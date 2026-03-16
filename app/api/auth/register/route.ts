@@ -6,25 +6,37 @@ import { sendWelcomeEmail } from '@/lib/email/send';
 
 const GAS_TIMEOUT = 15000; // 15 seconds
 
-/** Sync user to Google Sheets in background (non-blocking) */
+/** Sync user to Google Sheets (awaited before response to avoid serverless runtime termination) */
 async function syncToGoogleSheets(params: { name: string; email: string; passwordHash: string; phone: string }) {
   const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
-  if (!scriptUrl) return;
+  if (!scriptUrl) {
+    console.warn('[Register] GOOGLE_SCRIPT_URL not set, skipping Sheet sync');
+    return;
+  }
   try {
-    const qs = new URLSearchParams({
-      action: 'register',
-      name: params.name,
-      email: params.email,
-      passwordHash: params.passwordHash,
-      phone: params.phone,
-    });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), GAS_TIMEOUT);
-    await fetch(`${scriptUrl}?${qs.toString()}`, { redirect: 'follow', signal: controller.signal });
+
+    // Use POST to avoid URL length limits and encoding issues with bcrypt hashes
+    const res = await fetch(scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'register',
+        name: params.name,
+        email: params.email,
+        passwordHash: params.passwordHash,
+        phone: params.phone,
+      }),
+      redirect: 'follow',
+      signal: controller.signal,
+    });
     clearTimeout(timeout);
-    console.log('[Register] Synced user to Google Sheets:', params.email);
+
+    const text = await res.text();
+    console.log('[Register] Google Sheets sync response:', res.status, text.slice(0, 200));
   } catch (err) {
-    console.warn('[Register] Google Sheets sync failed (non-blocking):', err instanceof Error ? err.message : err);
+    console.warn('[Register] Google Sheets sync failed:', err instanceof Error ? err.message : err);
   }
 }
 
@@ -108,11 +120,11 @@ export async function POST(request: Request) {
         console.error('[Register] Session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
       }
 
-      // Send welcome email (non-blocking)
-      sendWelcomeEmail(email, name).catch(() => {});
+      // Dual-write: sync user to Google Sheets (must await before response on serverless)
+      await syncToGoogleSheets({ name, email, passwordHash: hashedPassword, phone });
 
-      // Dual-write: sync user to Google Sheets in background (non-blocking)
-      syncToGoogleSheets({ name, email, passwordHash: hashedPassword, phone }).catch(() => {});
+      // Send welcome email (non-blocking, ok to fire-and-forget after main work done)
+      sendWelcomeEmail(email, name).catch(() => {});
 
       return NextResponse.json({
         success: true,
