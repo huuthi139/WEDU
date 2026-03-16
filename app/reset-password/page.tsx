@@ -1,21 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/providers/ToastProvider';
 
-export default function ResetPassword() {
+function ResetPasswordContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
-  const { showToast } = useToast();
 
-  // If token exists, show reset form. Otherwise show forgot password form.
   if (token) {
     return <ResetForm token={token} />;
   }
   return <ForgotForm />;
+}
+
+export default function ResetPassword() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-dark flex items-center justify-center">
+        <div className="w-5 h-5 border-2 border-teal border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <ResetPasswordContent />
+    </Suspense>
+  );
 }
 
 function ForgotForm() {

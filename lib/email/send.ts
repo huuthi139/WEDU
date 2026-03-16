@@ -1,10 +1,11 @@
-import resend, { EMAIL_FROM } from './client';
+import getResend, { EMAIL_FROM } from './client';
 import { welcomeEmail, passwordResetEmail, courseCompletionEmail } from './templates';
 
 /** Send welcome email to newly registered user */
 export async function sendWelcomeEmail(to: string, name: string) {
   const { subject, html } = welcomeEmail(name);
   try {
+    const resend = getResend();
     const { error } = await resend.emails.send({
       from: EMAIL_FROM,
       to,
@@ -25,10 +26,11 @@ export async function sendWelcomeEmail(to: string, name: string) {
 
 /** Send password reset email with reset link */
 export async function sendPasswordResetEmail(to: string, name: string, resetToken: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://wepower.vn';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://wedu.vn';
   const resetLink = `${baseUrl}/reset-password?token=${resetToken}`;
   const { subject, html } = passwordResetEmail(name, resetLink);
   try {
+    const resend = getResend();
     const { error } = await resend.emails.send({
       from: EMAIL_FROM,
       to,
@@ -56,6 +58,7 @@ export async function sendCourseCompletionEmail(
 ) {
   const { subject, html } = courseCompletionEmail(name, courseName, certificateLink);
   try {
+    const resend = getResend();
     const { error } = await resend.emails.send({
       from: EMAIL_FROM,
       to,

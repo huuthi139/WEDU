@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
     // Send congratulation email when course is 100% completed
     if (progress >= 100 && courseName) {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://wepower.vn';
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://wedu.vn';
       const certificateLink = `${baseUrl}/certificates?courseId=${courseId}`;
       sendCourseCompletionEmail(
         session.email,

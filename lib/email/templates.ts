@@ -1,4 +1,4 @@
-/** Email templates for Wepower platform */
+/** Email templates for WEDU platform */
 
 const brandColor = '#2563eb';
 const bgColor = '#f8fafc';
@@ -11,14 +11,14 @@ function layout(content: string): string {
 <body style="margin:0;padding:0;background:${bgColor};font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:20px;">
     <div style="text-align:center;padding:24px 0;">
-      <h1 style="margin:0;color:${brandColor};font-size:28px;font-weight:700;">⚡ Wepower</h1>
+      <h1 style="margin:0;color:${brandColor};font-size:28px;font-weight:700;">📚 WEDU</h1>
       <p style="margin:4px 0 0;color:#64748b;font-size:13px;">Nền tảng học tập trực tuyến</p>
     </div>
     <div style="background:#ffffff;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
       ${content}
     </div>
     <div style="text-align:center;padding:24px 0;color:#94a3b8;font-size:12px;">
-      <p style="margin:0;">&copy; ${new Date().getFullYear()} Wepower. All rights reserved.</p>
+      <p style="margin:0;">&copy; ${new Date().getFullYear()} WEDU. All rights reserved.</p>
       <p style="margin:4px 0 0;">Email này được gửi từ huuthi.com</p>
     </div>
   </div>
@@ -28,11 +28,11 @@ function layout(content: string): string {
 
 export function welcomeEmail(name: string): { subject: string; html: string } {
   return {
-    subject: 'Chào mừng bạn đến với Wepower! 🎉',
+    subject: 'Chào mừng bạn đến với WEDU! 🎉',
     html: layout(`
       <h2 style="margin:0 0 16px;color:#1e293b;font-size:22px;">Xin chào ${name}! 👋</h2>
       <p style="color:#475569;line-height:1.6;margin:0 0 16px;">
-        Chào mừng bạn đã gia nhập <strong>Wepower</strong> – nền tảng học tập trực tuyến hàng đầu!
+        Chào mừng bạn đã gia nhập <strong>WEDU</strong> – nền tảng học tập trực tuyến hàng đầu!
       </p>
       <p style="color:#475569;line-height:1.6;margin:0 0 16px;">
         Tại đây, bạn có thể:
@@ -44,7 +44,7 @@ export function welcomeEmail(name: string): { subject: string; html: string } {
         <li>👥 Kết nối với cộng đồng học viên năng động</li>
       </ul>
       <div style="text-align:center;margin:24px 0;">
-        <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://wepower.vn'}/courses"
+        <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://wedu.vn'}/courses"
            style="display:inline-block;background:${brandColor};color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
           Khám phá khóa học ngay
         </a>
@@ -58,7 +58,7 @@ export function welcomeEmail(name: string): { subject: string; html: string } {
 
 export function passwordResetEmail(name: string, resetLink: string): { subject: string; html: string } {
   return {
-    subject: 'Khôi phục mật khẩu Wepower',
+    subject: 'Khôi phục mật khẩu WEDU',
     html: layout(`
       <h2 style="margin:0 0 16px;color:#1e293b;font-size:22px;">Khôi phục mật khẩu 🔐</h2>
       <p style="color:#475569;line-height:1.6;margin:0 0 16px;">
@@ -120,10 +120,10 @@ export function courseCompletionEmail(
       </div>
       ` : ''}
       <p style="color:#475569;line-height:1.6;margin:0 0 16px;">
-        Hãy tiếp tục hành trình học tập với các khóa học khác tại Wepower!
+        Hãy tiếp tục hành trình học tập với các khóa học khác tại WEDU!
       </p>
       <div style="text-align:center;margin:24px 0;">
-        <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://wepower.vn'}/courses"
+        <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://wedu.vn'}/courses"
            style="display:inline-block;background:${brandColor};color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
           Khám phá thêm khóa học
         </a>

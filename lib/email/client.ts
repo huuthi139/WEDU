@@ -1,7 +1,18 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resendInstance: Resend | null = null;
 
-export const EMAIL_FROM = 'Wepower <noreply@huuthi.com>';
+function getResend(): Resend {
+  if (!resendInstance) {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      throw new Error('RESEND_API_KEY is not configured');
+    }
+    resendInstance = new Resend(apiKey);
+  }
+  return resendInstance;
+}
 
-export default resend;
+export const EMAIL_FROM = 'WEDU <noreply@huuthi.com>';
+
+export default getResend;
