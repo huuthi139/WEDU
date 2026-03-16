@@ -17,17 +17,15 @@ async function syncToGoogleSheets(params: { name: string; email: string; passwor
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), GAS_TIMEOUT);
 
-    // Use POST to avoid URL length limits and encoding issues with bcrypt hashes
-    const res = await fetch(scriptUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'register',
-        name: params.name,
-        email: params.email,
-        passwordHash: params.passwordHash,
-        phone: params.phone,
-      }),
+    // Must use GET — GAS 302-redirects POST→GET, which loses the request body
+    const qs = new URLSearchParams({
+      action: 'register',
+      name: params.name,
+      email: params.email,
+      passwordHash: params.passwordHash,
+      phone: params.phone,
+    });
+    const res = await fetch(`${scriptUrl}?${qs.toString()}`, {
       redirect: 'follow',
       signal: controller.signal,
     });
