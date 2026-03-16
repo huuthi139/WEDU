@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { getChaptersByCourse, saveChapters } from '@/lib/supabase/chapters';
 import { getSupabaseAdmin } from '@/lib/supabase/client';
+import { FALLBACK_CHAPTERS } from '@/lib/fallback-chapters';
 
 // ---------------------------------------------------------------------------
 // Google Apps Script fallback (read-only, for migrating old data)
@@ -210,6 +211,38 @@ export async function GET(
         complete: true,
         expectedChapters: gasChapters.length,
         loadedChapters: gasChapters.length,
+      });
+    }
+
+    // 3. Fallback: use hardcoded fallback data
+    const fallbackChapters = FALLBACK_CHAPTERS[courseId];
+    if (fallbackChapters && fallbackChapters.length > 0) {
+      // Migrate to Supabase in background
+      let totalLessons = 0;
+      let totalDuration = 0;
+      for (const ch of fallbackChapters) {
+        const lessons = ch.lessons || [];
+        totalLessons += lessons.length;
+        for (const ls of lessons) {
+          totalDuration += parseDurationToSeconds(ls.duration || '');
+        }
+      }
+      saveChapters(courseId, fallbackChapters, totalLessons, totalDuration).catch(() => {});
+
+      const supabase3 = getSupabaseAdmin();
+      Promise.resolve(
+        supabase3
+          .from('courses')
+          .update({ lessons_count: totalLessons, duration: totalDuration, updated_at: new Date().toISOString() })
+          .eq('id', courseId)
+      ).catch(() => {});
+
+      return NextResponse.json({
+        success: true,
+        chapters: fallbackChapters,
+        complete: true,
+        expectedChapters: fallbackChapters.length,
+        loadedChapters: fallbackChapters.length,
       });
     }
 
