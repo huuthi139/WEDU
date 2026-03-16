@@ -173,149 +173,134 @@ export default function AdminDashboard() {
     }));
   }, []);
 
-  /** Fetch students from API with fallback to direct GAS */
+  /** Fetch from GAS directly (browser → Google, no server needed) */
+  const fetchFromGASDirect = useCallback(async (gasUrl: string): Promise<SheetUser[] | null> => {
+    try {
+      const res = await fetch(`${gasUrl}?action=getUsers`, { redirect: 'follow', cache: 'no-store' });
+      const text = await res.text();
+      const data = JSON.parse(text);
+      if (data?.success && Array.isArray(data.users) && data.users.length > 0) {
+        return data.users;
+      }
+    } catch (err) {
+      console.error('[fetchStudents] GAS direct error:', err);
+    }
+    return null;
+  }, []);
+
+  /** Fetch from CSV directly (browser → Google Sheets) */
+  const fetchFromCSVDirect = useCallback(async (sheetId: string): Promise<SheetUser[] | null> => {
+    try {
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Users')}`;
+      const res = await fetch(csvUrl, { cache: 'no-store' });
+      if (!res.ok) return null;
+      const csv = await res.text();
+      if (!csv || csv.length < 10) return null;
+
+      const lines = csv.trim().split('\n');
+      if (lines.length < 2) return null;
+
+      const parseRow = (line: string): string[] => {
+        const cols: string[] = [];
+        let cur = '', inQ = false;
+        for (let i = 0; i < line.length; i++) {
+          const c = line[i];
+          if (c === '"') { if (inQ && line[i + 1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+          else if (c === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+          else cur += c;
+        }
+        cols.push(cur.trim());
+        return cols;
+      };
+
+      const headers = parseRow(lines[0]);
+      return lines.slice(1).map(line => {
+        const cols = parseRow(line);
+        const row: Record<string, string> = {};
+        headers.forEach((h, i) => { row[h] = cols[i] || ''; });
+        return {
+          Email: row.Email || row.email || '',
+          Role: row.Role || row.role || '',
+          'Tên': row['Tên'] || row.name || '',
+          Level: row.Level || row.level || 'Free',
+          Phone: row.Phone || row.phone || '',
+        };
+      }).filter(u => u.Email);
+    } catch (err) {
+      console.error('[fetchStudents] CSV direct error:', err);
+    }
+    return null;
+  }, []);
+
+  /** Fetch students: server API → client-side GAS → client-side CSV */
   const fetchStudents = useCallback(async () => {
     setStudentsLoading(true);
     setStudentsError(null);
-    const errors: string[] = [];
 
     try {
-      // Try server API first (with admin role header as fallback auth)
+      // Step 1: Try server API
       const savedUser = localStorage.getItem('wedu-user');
       const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
 
-      // Try POST first (more reliable for sending auth headers), then GET as fallback
-      let data: { success?: boolean; users?: SheetUser[]; error?: string } | null = null;
+      let apiData: {
+        success?: boolean;
+        users?: SheetUser[];
+        error?: string;
+        fallback?: { gasUrl?: string; sheetId?: string };
+      } | null = null;
 
       try {
         const res = await fetch('/api/auth/users', {
           method: 'POST',
           cache: 'no-store',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-role': userRole,
-          },
+          headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
         });
-        data = await res.json();
+        apiData = await res.json();
       } catch {
-        // POST failed, try GET
-        try {
-          const res = await fetch('/api/auth/users', {
-            cache: 'no-store',
-            headers: { 'x-user-role': userRole },
-          });
-          data = await res.json();
-        } catch (getErr) {
-          errors.push(`API: ${getErr instanceof Error ? getErr.message : 'network error'}`);
-        }
+        // Server completely unreachable - will use hardcoded fallback below
       }
 
-      if (data?.success && Array.isArray(data.users) && data.users.length > 0) {
-        setStudents(mapUsersToStudents(data.users));
+      // Server returned data successfully
+      if (apiData?.success && Array.isArray(apiData.users) && apiData.users.length > 0) {
+        setStudents(mapUsersToStudents(apiData.users));
         return;
       }
 
-      if (data?.error) {
-        errors.push(`API: ${data.error}`);
-      }
+      // Step 2: Server failed. Try GAS directly from browser.
+      // Use fallback URLs from server response, or env vars, or nothing
+      const gasUrl = apiData?.fallback?.gasUrl || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL || '';
+      const sheetId = apiData?.fallback?.sheetId || process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID || '';
 
-      // If API returned 403, empty, or error, try direct Google Apps Script as last resort
-      const scriptUrl = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
-      if (scriptUrl) {
-        try {
-          const gasRes = await fetch(`${scriptUrl}?action=getUsers`, {
-            redirect: 'follow',
-            cache: 'no-store',
-          });
-          const gasText = await gasRes.text();
-          let gasData: { success?: boolean; users?: SheetUser[] } | null = null;
-          try {
-            gasData = JSON.parse(gasText);
-          } catch {
-            errors.push('GAS trực tiếp: phản hồi không hợp lệ');
-          }
-
-          if (gasData?.success && Array.isArray(gasData.users) && gasData.users.length > 0) {
-            setStudents(mapUsersToStudents(gasData.users));
-            return;
-          }
-          if (!gasData?.success) {
-            errors.push('GAS trực tiếp: không có dữ liệu');
-          }
-        } catch (gasErr) {
-          errors.push(`GAS trực tiếp: ${gasErr instanceof Error ? gasErr.message : 'lỗi mạng'}`);
+      if (gasUrl) {
+        const gasUsers = await fetchFromGASDirect(gasUrl);
+        if (gasUsers && gasUsers.length > 0) {
+          setStudents(mapUsersToStudents(gasUsers));
+          return;
         }
       }
 
-      // Last resort: try Google Sheets CSV export directly from client
-      const sheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID;
+      // Step 3: GAS also failed. Try CSV directly from browser.
       if (sheetId) {
-        try {
-          const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Users')}`;
-          const csvRes = await fetch(csvUrl, { cache: 'no-store' });
-          if (csvRes.ok) {
-            const csvText = await csvRes.text();
-            if (csvText && csvText.length > 10) {
-              // Parse CSV: first line is headers, rest is data
-              const lines = csvText.trim().split('\n');
-              if (lines.length >= 2) {
-                const parseRow = (line: string): string[] => {
-                  const cols: string[] = [];
-                  let current = '';
-                  let inQuotes = false;
-                  for (let i = 0; i < line.length; i++) {
-                    const ch = line[i];
-                    if (ch === '"') {
-                      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
-                      else inQuotes = !inQuotes;
-                    } else if (ch === ',' && !inQuotes) {
-                      cols.push(current.trim());
-                      current = '';
-                    } else {
-                      current += ch;
-                    }
-                  }
-                  cols.push(current.trim());
-                  return cols;
-                };
-                const headers = parseRow(lines[0]);
-                const csvUsers: SheetUser[] = lines.slice(1).map(line => {
-                  const cols = parseRow(line);
-                  const row: Record<string, string> = {};
-                  headers.forEach((h, i) => { row[h] = cols[i] || ''; });
-                  return {
-                    Email: row.Email || row.email || '',
-                    Role: row.Role || row.role || '',
-                    'Tên': row['Tên'] || row.name || '',
-                    Level: row.Level || row.level || 'Free',
-                    Phone: row.Phone || row.phone || '',
-                  };
-                }).filter(u => u.Email);
-
-                if (csvUsers.length > 0) {
-                  setStudents(mapUsersToStudents(csvUsers));
-                  return;
-                }
-              }
-            }
-          }
-          errors.push('CSV trực tiếp: không có dữ liệu');
-        } catch (csvErr) {
-          errors.push(`CSV trực tiếp: ${csvErr instanceof Error ? csvErr.message : 'lỗi mạng'}`);
+        const csvUsers = await fetchFromCSVDirect(sheetId);
+        if (csvUsers && csvUsers.length > 0) {
+          setStudents(mapUsersToStudents(csvUsers));
+          return;
         }
       }
 
-      // If we got here, no data from any source
-      if (errors.length > 0) {
-        setStudentsError(`Không tải được danh sách học viên: ${errors.join('; ')}`);
-      }
+      // All sources failed
+      setStudentsError(
+        apiData?.error
+          ? `Không tải được danh sách học viên (${apiData.error})`
+          : 'Không tải được danh sách học viên từ bất kỳ nguồn nào'
+      );
     } catch (err) {
       console.error('Failed to fetch students:', err);
       setStudentsError(`Lỗi tải học viên: ${err instanceof Error ? err.message : 'unknown error'}`);
     } finally {
       setStudentsLoading(false);
     }
-  }, [mapUsersToStudents]);
+  }, [mapUsersToStudents, fetchFromGASDirect, fetchFromCSVDirect]);
 
   // Fetch students on mount
   useEffect(() => {
