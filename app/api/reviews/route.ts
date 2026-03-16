@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
-
-const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL!;
+import { getReviewsByCourse, saveReview } from '@/lib/supabase/reviews';
+import { syncReviewToSheet } from '@/lib/sync/sheetSync';
 
 export async function GET(req: NextRequest) {
   const courseId = req.nextUrl.searchParams.get('courseId');
   if (!courseId) return NextResponse.json({ error: 'courseId required' }, { status: 400 });
 
-  try {
-    const res = await fetch(`${SCRIPT_URL}?action=getReviews&courseId=${encodeURIComponent(courseId)}`);
-    const data = await res.json();
-    return NextResponse.json(data);
-  } catch {
-    return NextResponse.json({ success: true, reviews: [] });
-  }
+  const reviews = await getReviewsByCourse(courseId);
+
+  return NextResponse.json({
+    success: true,
+    reviews: reviews.map(r => ({
+      userId: r.user_email,
+      userEmail: r.user_email,
+      userName: r.user_name,
+      courseId: r.course_id,
+      rating: r.rating,
+      content: r.content,
+      createdAt: r.created_at,
+    })),
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -22,20 +29,26 @@ export async function POST(req: NextRequest) {
 
   const { courseId, rating, content } = await req.json();
 
-  try {
-    const params = new URLSearchParams({
-      action: 'saveReview',
-      userId: session.email,
-      userEmail: session.email,
-      userName: session.name,
-      courseId,
-      rating: String(rating),
-      content: content || '',
-    });
-    const res = await fetch(`${SCRIPT_URL}?${params}`);
-    const data = await res.json();
-    return NextResponse.json(data);
-  } catch {
+  const review = await saveReview({
+    courseId,
+    userEmail: session.email,
+    userName: session.name,
+    rating: Number(rating) || 5,
+    content: content || '',
+  });
+
+  if (!review) {
     return NextResponse.json({ success: false, error: 'Failed to save review' }, { status: 500 });
   }
+
+  // Background sync to Google Sheet
+  syncReviewToSheet({
+    userEmail: session.email,
+    userName: session.name,
+    courseId,
+    rating: Number(rating) || 5,
+    content: content || '',
+  });
+
+  return NextResponse.json({ success: true });
 }

@@ -1,105 +1,9 @@
 import { NextResponse } from 'next/server';
 import { hashPassword } from '@/lib/auth/password';
 import { createSession } from '@/lib/auth/session';
-import { getLocalUser, createLocalUser, localUserExists } from '@/lib/fallback-data';
+import { emailExists, createUserProfile } from '@/lib/supabase/users';
+import { syncUserToSheet } from '@/lib/sync/sheetSync';
 import { sendWelcomeEmail } from '@/lib/email/send';
-
-const GAS_TIMEOUT = 15000; // 15 seconds
-
-/** Sync user to Google Sheets (awaited before response to avoid serverless runtime termination) */
-async function syncToGoogleSheets(params: { name: string; email: string; passwordHash: string; phone: string }): Promise<boolean> {
-  const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
-  if (!scriptUrl) {
-    console.warn('[Register] GOOGLE_SCRIPT_URL not set, skipping Sheet sync');
-    return false;
-  }
-
-  // Retry up to 3 times with backoff
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      if (attempt > 0) {
-        await new Promise(r => setTimeout(r, 2000 * attempt)); // 2s, 4s backoff
-        console.log(`[Register] Google Sheets sync retry attempt ${attempt + 1}`);
-      }
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), GAS_TIMEOUT);
-
-      // Must use GET — GAS 302-redirects POST→GET, which loses the request body
-      const qs = new URLSearchParams({
-        action: 'register',
-        name: params.name,
-        email: params.email,
-        passwordHash: params.passwordHash,
-        phone: params.phone || '',
-      });
-      const url = `${scriptUrl}?${qs.toString()}`;
-      console.log('[Register] Syncing to Google Sheets:', params.email, '(attempt', attempt + 1, ')');
-
-      const res = await fetch(url, {
-        redirect: 'follow',
-        signal: controller.signal,
-        cache: 'no-store',
-      });
-      clearTimeout(timeout);
-
-      const text = await res.text();
-      console.log('[Register] Google Sheets sync response:', res.status, text.slice(0, 500));
-
-      // Check if the response indicates success
-      try {
-        const json = JSON.parse(text);
-        if (json.success) {
-          console.log('[Register] Google Sheets sync successful for', params.email);
-          return true;
-        }
-        // If email already exists in sheet, that's OK (dual-write idempotency)
-        if (json.error && json.error.includes('đã được sử dụng')) {
-          console.log('[Register] User already exists in Google Sheets (OK for dual-write):', params.email);
-          return true;
-        }
-        console.warn('[Register] Google Sheets sync returned error:', json.error);
-      } catch {
-        // Non-JSON response, might still be OK if status is 200
-        if (res.ok) {
-          console.log('[Register] Google Sheets sync completed (non-JSON response) for', params.email);
-          return true;
-        }
-        console.warn('[Register] Google Sheets non-JSON error response:', res.status, text.slice(0, 200));
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[Register] Google Sheets sync failed (attempt ${attempt + 1}):`, msg);
-    }
-  }
-  console.error('[Register] Google Sheets sync failed after all retries for', params.email);
-  return false;
-}
-
-/** Fetch with timeout to prevent hanging requests */
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = GAS_TIMEOUT): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-/** Safely parse JSON from response, returns null if not JSON */
-async function safeJsonParse(res: Response): Promise<any | null> {
-  const ct = res.headers.get('content-type') || '';
-  if (!ct.includes('json') && !ct.includes('javascript')) {
-    console.warn('[Register] Non-JSON response:', ct);
-    return null;
-  }
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
 
 export async function POST(request: Request) {
   try {
@@ -131,141 +35,31 @@ export async function POST(request: Request) {
       );
     }
 
-    // Hash password for storage
+    // Hash password
     const hashedPassword = await hashPassword(password);
 
-    // Method 1: Try Supabase registration
-    try {
-      const { emailExists, createUserProfile } = await import('@/lib/supabase/users');
-
-      // Check if email already exists
-      if (await emailExists(email)) {
-        return NextResponse.json(
-          { success: false, error: 'Email đã được sử dụng. Vui lòng dùng email khác.' },
-          { status: 409 }
-        );
-      }
-
-      const userProfile = await createUserProfile({
-        email, name, phone, passwordHash: hashedPassword, role: 'user', memberLevel: 'Free',
-      });
-
-      try {
-        await createSession({ email, role: 'user', name, level: 'Free' });
-      } catch (sessionErr) {
-        console.error('[Register] Session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
-      }
-
-      // Dual-write: sync user to Google Sheets (must await before response on serverless)
-      await syncToGoogleSheets({ name, email, passwordHash: hashedPassword, phone });
-
-      // Send welcome email (non-blocking, ok to fire-and-forget after main work done)
-      sendWelcomeEmail(email, name).catch(() => {});
-
-      return NextResponse.json({
-        success: true,
-        user: {
-          name: userProfile.name,
-          email: userProfile.email,
-          phone: userProfile.phone,
-          role: userProfile.role,
-          memberLevel: userProfile.member_level,
-        },
-      });
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.warn('[Register] Supabase unavailable, trying Google Sheets fallback:', errMsg);
-    }
-
-    // Method 2: Google Apps Script fallback (saves to Google Sheets)
-    const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
-    if (scriptUrl) {
-      try {
-        // First check if email already exists via login action
-        const checkRes = await fetchWithTimeout(
-          `${scriptUrl}?action=login&email=${encodeURIComponent(email)}`,
-          { redirect: 'follow' }
-        );
-        const checkData = await safeJsonParse(checkRes);
-
-        if (checkData?.success && checkData?.user) {
-          return NextResponse.json(
-            { success: false, error: 'Email đã được sử dụng. Vui lòng dùng email khác.' },
-            { status: 409 }
-          );
-        }
-
-        // Register via Google Apps Script
-        const params = new URLSearchParams({
-          action: 'register',
-          name,
-          email,
-          passwordHash: hashedPassword,
-          phone,
-        });
-
-        const res = await fetchWithTimeout(
-          `${scriptUrl}?${params.toString()}`,
-          { redirect: 'follow' }
-        );
-        const data = await safeJsonParse(res);
-
-        if (data?.success) {
-          try {
-            await createSession({ email, role: 'user', name, level: 'Free' });
-          } catch (sessionErr) {
-            console.error('[Register] Session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
-          }
-
-          // Send welcome email (non-blocking)
-          sendWelcomeEmail(email, name).catch(() => {});
-
-          return NextResponse.json({
-            success: true,
-            user: {
-              name: data.user?.name || name,
-              email: data.user?.email || email,
-              phone: data.user?.phone || phone,
-              role: 'user',
-              memberLevel: 'Free',
-            },
-          });
-        }
-
-        if (data) {
-          return NextResponse.json(
-            { success: false, error: data.error || 'Không thể tạo tài khoản.' },
-            { status: 400 }
-          );
-        }
-
-        console.warn('[Register] Google Script returned non-JSON response');
-      } catch (scriptErr) {
-        const msg = scriptErr instanceof Error ? scriptErr.message : String(scriptErr);
-        if (msg.includes('aborted') || msg.includes('abort')) {
-          console.error('[Register] Google Script timeout after', GAS_TIMEOUT, 'ms');
-        } else {
-          console.error('[Register] Google Script error:', msg);
-        }
-      }
-    }
-
-    // Method 3: Local in-memory fallback (when all external services are unreachable)
-    console.warn('[Register] All external services unavailable, using local fallback');
-    if (localUserExists(email)) {
+    // Check if email already exists in Supabase
+    if (await emailExists(email)) {
       return NextResponse.json(
         { success: false, error: 'Email đã được sử dụng. Vui lòng dùng email khác.' },
         { status: 409 }
       );
     }
 
-    const localUser = createLocalUser({ name, email, phone, passwordHash: hashedPassword });
+    // Create user in Supabase (source of truth)
+    const userProfile = await createUserProfile({
+      email, name, phone, passwordHash: hashedPassword, role: 'user', memberLevel: 'Free',
+    });
 
+    // Create session
     try {
       await createSession({ email, role: 'user', name, level: 'Free' });
     } catch (sessionErr) {
       console.error('[Register] Session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
     }
+
+    // Background sync to Google Sheet (non-blocking, fire-and-forget)
+    syncUserToSheet({ name, email, passwordHash: hashedPassword, phone });
 
     // Send welcome email (non-blocking)
     sendWelcomeEmail(email, name).catch(() => {});
@@ -273,15 +67,15 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       user: {
-        name: localUser.name,
-        email: localUser.email,
-        phone: localUser.phone,
-        role: localUser.role,
-        memberLevel: localUser.memberLevel,
+        name: userProfile.name,
+        email: userProfile.email,
+        phone: userProfile.phone,
+        role: userProfile.role,
+        memberLevel: userProfile.member_level,
       },
     });
   } catch (error) {
-    console.error('[Register] Unexpected error:', error instanceof Error ? error.message : error);
+    console.error('[Register] Error:', error instanceof Error ? error.message : error);
     return NextResponse.json(
       { success: false, error: 'Lỗi hệ thống. Vui lòng thử lại.' },
       { status: 500 }

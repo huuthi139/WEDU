@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/Button';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { useCourses } from '@/contexts/CoursesContext';
-import { useEnrollment, type Order } from '@/contexts/EnrollmentContext';
 import type { Course } from '@/lib/mockData';
 import type { MemberLevel } from '@/lib/mockData';
 import { formatPrice, formatDuration } from '@/lib/utils';
@@ -125,19 +124,96 @@ export default function AdminDashboard() {
 
   // ------- Course CRUD state -------
   const { courses: sheetCourses } = useCourses();
-  const { orders: enrollmentOrders, updateOrderStatus } = useEnrollment();
+  // ------- Orders from Supabase -------
+  const [supabaseOrders, setSupabaseOrders] = useState<{ id: string; name: string; email: string; course: string; amount: number; status: string; date: string; method: string }[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
-  // Map enrollment orders for admin display
-  const recentOrders = enrollmentOrders.map(o => ({
-    id: o.id,
-    name: o.name,
-    email: o.email,
-    course: o.courses.map(c => c.title).join(', '),
-    amount: o.total,
-    status: o.status,
-    date: new Date(o.date).toLocaleDateString('vi-VN'),
-    method: o.paymentMethod === 'bank_transfer' ? 'Chuyển khoản' : o.paymentMethod === 'momo' ? 'MoMo' : 'VNPay',
-  }));
+  const fetchOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const res = await fetch('/api/admin/orders', { cache: 'no-store' });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.orders)) {
+        setSupabaseOrders(data.orders.map((o: any) => ({
+          id: o.id,
+          name: o.name,
+          email: o.email,
+          course: o.course,
+          amount: o.amount,
+          status: o.status,
+          date: o.date ? new Date(o.date).toLocaleDateString('vi-VN') : '-',
+          method: o.method,
+        })));
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to fetch orders:', err);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
+
+  const recentOrders = supabaseOrders;
+
+  const handleUpdateOrderStatus = useCallback(async (orderId: string, status: string) => {
+    // Update locally first
+    setSupabaseOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+    // Update in Supabase
+    try {
+      await fetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, status }),
+      });
+    } catch (err) {
+      console.error('[Admin] Failed to update order status:', err);
+    }
+  }, []);
+
+  // ------- Sync from Google Sheets -------
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
+  const [syncMessage, setSyncMessage] = useState('');
+  const [syncCounts, setSyncCounts] = useState<Record<string, number> | null>(null);
+
+  const handleSyncFromSheets = useCallback(async () => {
+    setSyncStatus('syncing');
+    setSyncMessage('Đang đồng bộ dữ liệu từ Google Sheets...');
+    try {
+      const res = await fetch('/api/admin/sync-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tables: ['orders', 'enrollments', 'reviews', 'chapters'] }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSyncStatus('done');
+        setSyncMessage(data.message);
+        // Refresh orders after sync
+        fetchOrders();
+        // Fetch updated counts
+        fetchSyncCounts();
+      } else {
+        setSyncStatus('error');
+        setSyncMessage(data.error || 'Sync thất bại');
+      }
+    } catch (err) {
+      setSyncStatus('error');
+      setSyncMessage('Lỗi kết nối');
+    }
+    setTimeout(() => setSyncStatus('idle'), 5000);
+  }, [fetchOrders]);
+
+  const fetchSyncCounts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/sync-data', { cache: 'no-store' });
+      const data = await res.json();
+      if (data.success) setSyncCounts(data.counts);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { fetchSyncCounts(); }, [fetchSyncCounts]);
+
   const [courses, setCourses] = useState<Course[]>([]);
   const [showCourseModal, setShowCourseModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
@@ -173,149 +249,134 @@ export default function AdminDashboard() {
     }));
   }, []);
 
-  /** Fetch students from API with fallback to direct GAS */
+  /** Fetch from GAS directly (browser → Google, no server needed) */
+  const fetchFromGASDirect = useCallback(async (gasUrl: string): Promise<SheetUser[] | null> => {
+    try {
+      const res = await fetch(`${gasUrl}?action=getUsers`, { redirect: 'follow', cache: 'no-store' });
+      const text = await res.text();
+      const data = JSON.parse(text);
+      if (data?.success && Array.isArray(data.users) && data.users.length > 0) {
+        return data.users;
+      }
+    } catch (err) {
+      console.error('[fetchStudents] GAS direct error:', err);
+    }
+    return null;
+  }, []);
+
+  /** Fetch from CSV directly (browser → Google Sheets) */
+  const fetchFromCSVDirect = useCallback(async (sheetId: string): Promise<SheetUser[] | null> => {
+    try {
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Users')}`;
+      const res = await fetch(csvUrl, { cache: 'no-store' });
+      if (!res.ok) return null;
+      const csv = await res.text();
+      if (!csv || csv.length < 10) return null;
+
+      const lines = csv.trim().split('\n');
+      if (lines.length < 2) return null;
+
+      const parseRow = (line: string): string[] => {
+        const cols: string[] = [];
+        let cur = '', inQ = false;
+        for (let i = 0; i < line.length; i++) {
+          const c = line[i];
+          if (c === '"') { if (inQ && line[i + 1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+          else if (c === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+          else cur += c;
+        }
+        cols.push(cur.trim());
+        return cols;
+      };
+
+      const headers = parseRow(lines[0]);
+      return lines.slice(1).map(line => {
+        const cols = parseRow(line);
+        const row: Record<string, string> = {};
+        headers.forEach((h, i) => { row[h] = cols[i] || ''; });
+        return {
+          Email: row.Email || row.email || '',
+          Role: row.Role || row.role || '',
+          'Tên': row['Tên'] || row.name || '',
+          Level: row.Level || row.level || 'Free',
+          Phone: row.Phone || row.phone || '',
+        };
+      }).filter(u => u.Email);
+    } catch (err) {
+      console.error('[fetchStudents] CSV direct error:', err);
+    }
+    return null;
+  }, []);
+
+  /** Fetch students: server API → client-side GAS → client-side CSV */
   const fetchStudents = useCallback(async () => {
     setStudentsLoading(true);
     setStudentsError(null);
-    const errors: string[] = [];
 
     try {
-      // Try server API first (with admin role header as fallback auth)
+      // Step 1: Try server API
       const savedUser = localStorage.getItem('wedu-user');
       const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
 
-      // Try POST first (more reliable for sending auth headers), then GET as fallback
-      let data: { success?: boolean; users?: SheetUser[]; error?: string } | null = null;
+      let apiData: {
+        success?: boolean;
+        users?: SheetUser[];
+        error?: string;
+        fallback?: { gasUrl?: string; sheetId?: string };
+      } | null = null;
 
       try {
         const res = await fetch('/api/auth/users', {
           method: 'POST',
           cache: 'no-store',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-role': userRole,
-          },
+          headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
         });
-        data = await res.json();
+        apiData = await res.json();
       } catch {
-        // POST failed, try GET
-        try {
-          const res = await fetch('/api/auth/users', {
-            cache: 'no-store',
-            headers: { 'x-user-role': userRole },
-          });
-          data = await res.json();
-        } catch (getErr) {
-          errors.push(`API: ${getErr instanceof Error ? getErr.message : 'network error'}`);
-        }
+        // Server completely unreachable - will use hardcoded fallback below
       }
 
-      if (data?.success && Array.isArray(data.users) && data.users.length > 0) {
-        setStudents(mapUsersToStudents(data.users));
+      // Server returned data successfully
+      if (apiData?.success && Array.isArray(apiData.users) && apiData.users.length > 0) {
+        setStudents(mapUsersToStudents(apiData.users));
         return;
       }
 
-      if (data?.error) {
-        errors.push(`API: ${data.error}`);
-      }
+      // Step 2: Server failed. Try GAS directly from browser.
+      // Use fallback URLs from server response, or env vars, or nothing
+      const gasUrl = apiData?.fallback?.gasUrl || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL || '';
+      const sheetId = apiData?.fallback?.sheetId || process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID || '';
 
-      // If API returned 403, empty, or error, try direct Google Apps Script as last resort
-      const scriptUrl = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
-      if (scriptUrl) {
-        try {
-          const gasRes = await fetch(`${scriptUrl}?action=getUsers`, {
-            redirect: 'follow',
-            cache: 'no-store',
-          });
-          const gasText = await gasRes.text();
-          let gasData: { success?: boolean; users?: SheetUser[] } | null = null;
-          try {
-            gasData = JSON.parse(gasText);
-          } catch {
-            errors.push('GAS trực tiếp: phản hồi không hợp lệ');
-          }
-
-          if (gasData?.success && Array.isArray(gasData.users) && gasData.users.length > 0) {
-            setStudents(mapUsersToStudents(gasData.users));
-            return;
-          }
-          if (!gasData?.success) {
-            errors.push('GAS trực tiếp: không có dữ liệu');
-          }
-        } catch (gasErr) {
-          errors.push(`GAS trực tiếp: ${gasErr instanceof Error ? gasErr.message : 'lỗi mạng'}`);
+      if (gasUrl) {
+        const gasUsers = await fetchFromGASDirect(gasUrl);
+        if (gasUsers && gasUsers.length > 0) {
+          setStudents(mapUsersToStudents(gasUsers));
+          return;
         }
       }
 
-      // Last resort: try Google Sheets CSV export directly from client
-      const sheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID;
+      // Step 3: GAS also failed. Try CSV directly from browser.
       if (sheetId) {
-        try {
-          const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Users')}`;
-          const csvRes = await fetch(csvUrl, { cache: 'no-store' });
-          if (csvRes.ok) {
-            const csvText = await csvRes.text();
-            if (csvText && csvText.length > 10) {
-              // Parse CSV: first line is headers, rest is data
-              const lines = csvText.trim().split('\n');
-              if (lines.length >= 2) {
-                const parseRow = (line: string): string[] => {
-                  const cols: string[] = [];
-                  let current = '';
-                  let inQuotes = false;
-                  for (let i = 0; i < line.length; i++) {
-                    const ch = line[i];
-                    if (ch === '"') {
-                      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
-                      else inQuotes = !inQuotes;
-                    } else if (ch === ',' && !inQuotes) {
-                      cols.push(current.trim());
-                      current = '';
-                    } else {
-                      current += ch;
-                    }
-                  }
-                  cols.push(current.trim());
-                  return cols;
-                };
-                const headers = parseRow(lines[0]);
-                const csvUsers: SheetUser[] = lines.slice(1).map(line => {
-                  const cols = parseRow(line);
-                  const row: Record<string, string> = {};
-                  headers.forEach((h, i) => { row[h] = cols[i] || ''; });
-                  return {
-                    Email: row.Email || row.email || '',
-                    Role: row.Role || row.role || '',
-                    'Tên': row['Tên'] || row.name || '',
-                    Level: row.Level || row.level || 'Free',
-                    Phone: row.Phone || row.phone || '',
-                  };
-                }).filter(u => u.Email);
-
-                if (csvUsers.length > 0) {
-                  setStudents(mapUsersToStudents(csvUsers));
-                  return;
-                }
-              }
-            }
-          }
-          errors.push('CSV trực tiếp: không có dữ liệu');
-        } catch (csvErr) {
-          errors.push(`CSV trực tiếp: ${csvErr instanceof Error ? csvErr.message : 'lỗi mạng'}`);
+        const csvUsers = await fetchFromCSVDirect(sheetId);
+        if (csvUsers && csvUsers.length > 0) {
+          setStudents(mapUsersToStudents(csvUsers));
+          return;
         }
       }
 
-      // If we got here, no data from any source
-      if (errors.length > 0) {
-        setStudentsError(`Không tải được danh sách học viên: ${errors.join('; ')}`);
-      }
+      // All sources failed
+      setStudentsError(
+        apiData?.error
+          ? `Không tải được danh sách học viên (${apiData.error})`
+          : 'Không tải được danh sách học viên từ bất kỳ nguồn nào'
+      );
     } catch (err) {
       console.error('Failed to fetch students:', err);
       setStudentsError(`Lỗi tải học viên: ${err instanceof Error ? err.message : 'unknown error'}`);
     } finally {
       setStudentsLoading(false);
     }
-  }, [mapUsersToStudents]);
+  }, [mapUsersToStudents, fetchFromGASDirect, fetchFromCSVDirect]);
 
   // Fetch students on mount
   useEffect(() => {
@@ -403,7 +464,7 @@ export default function AdminDashboard() {
   const registeredCount = students.length;
 
   // Học viên = users who have enrolled in at least one course or appear in orders
-  const orderEmails = new Set(enrollmentOrders.map(o => o.email.toLowerCase()));
+  const orderEmails = new Set(supabaseOrders.map(o => o.email.toLowerCase()));
   const actualStudentsCount = students.filter(
     s => s.enrolledCourses.length > 0 || orderEmails.has(s.email.toLowerCase())
   ).length;
@@ -638,6 +699,45 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {/* Sync from Google Sheets button */}
+            <button
+              onClick={handleSyncFromSheets}
+              disabled={syncStatus === 'syncing'}
+              className={`inline-flex items-center gap-2 h-10 px-4 rounded-lg font-bold text-sm transition-all duration-200 ${
+                syncStatus === 'done'
+                  ? 'bg-green-500/15 text-green-400 border border-green-500/30'
+                  : syncStatus === 'error'
+                  ? 'bg-red-500/15 text-red-400 border border-red-500/30'
+                  : syncStatus === 'syncing'
+                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-wait'
+                  : 'bg-white/5 text-gray-300 border border-white/10 hover:border-amber-500/30 hover:text-amber-400'
+              }`}
+              title={syncMessage || (syncCounts ? `Supabase: ${syncCounts.orders} orders, ${syncCounts.enrollments} enrollments, ${syncCounts.reviews} reviews, ${syncCounts.chapters} chapters` : 'Sync dữ liệu từ Google Sheets lên Supabase')}
+            >
+              {syncStatus === 'syncing' ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Đang sync...
+                </>
+              ) : syncStatus === 'done' ? (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Đã sync
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Sync GSheet
+                </>
+              )}
+            </button>
             <button
               onClick={handleManualSave}
               disabled={saveStatus === 'saving'}
@@ -761,7 +861,7 @@ export default function AdminDashboard() {
         {activeTab === 'orders' && (
           <OrdersTab
             recentOrders={recentOrders}
-            updateOrderStatus={updateOrderStatus}
+            updateOrderStatus={handleUpdateOrderStatus}
           />
         )}
 

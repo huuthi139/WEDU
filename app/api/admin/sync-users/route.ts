@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hasAdminAccess } from '@/lib/utils/auth';
-
-const GAS_TIMEOUT = 20000;
+import { getAllUsers } from '@/lib/supabase/users';
 
 async function verifyAdmin(request: NextRequest): Promise<boolean> {
   try {
@@ -20,8 +19,7 @@ async function verifyAdmin(request: NextRequest): Promise<boolean> {
 
 /**
  * POST /api/admin/sync-users
- * One-way sync: Google Sheets → Supabase (upsert only, never delete)
- * Admin only. Reads all users from Google Sheets and upserts into Supabase.
+ * Import legacy users from Google Sheet → Supabase (one-time migration)
  */
 export async function POST(request: NextRequest) {
   const isAdmin = await verifyAdmin(request);
@@ -35,16 +33,16 @@ export async function POST(request: NextRequest) {
   const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
   if (!scriptUrl) {
     return NextResponse.json(
-      { success: false, error: 'GOOGLE_SCRIPT_URL chưa được cấu hình' },
-      { status: 500 }
+      { success: false, error: 'GOOGLE_SCRIPT_URL chưa được cấu hình. Không cần sync - Supabase là nguồn dữ liệu chính.' },
+      { status: 200 }
     );
   }
 
-  // Step 1: Fetch all users from Google Sheets
+  // Fetch users from Google Sheets for one-time import
   let sheetUsers: Array<Record<string, string>> = [];
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), GAS_TIMEOUT);
+    const timeout = setTimeout(() => controller.abort(), 20000);
     const res = await fetch(`${scriptUrl}?action=getUsers`, {
       redirect: 'follow',
       signal: controller.signal,
@@ -79,12 +77,12 @@ export async function POST(request: NextRequest) {
   if (sheetUsers.length === 0) {
     return NextResponse.json({
       success: true,
-      message: 'Google Sheets không có học viên nào',
+      message: 'Google Sheets không có học viên nào để import',
       stats: { total: 0, added: 0, updated: 0, skipped: 0 },
     });
   }
 
-  // Step 2: One-way sync to Supabase (upsert only, never delete)
+  // Import to Supabase
   try {
     const { syncSheetUsersToSupabase } = await import('@/lib/supabase/users');
     const mapped = sheetUsers.map((u) => ({
@@ -100,16 +98,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Đồng bộ hoàn tất: ${stats.added} thêm mới, ${stats.updated} cập nhật, ${stats.skipped} bỏ qua`,
-      stats: {
-        total: sheetUsers.length,
-        ...stats,
-      },
+      message: `Import hoàn tất: ${stats.added} thêm mới, ${stats.updated} cập nhật, ${stats.skipped} bỏ qua`,
+      stats: { total: sheetUsers.length, ...stats },
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { success: false, error: `Lỗi đồng bộ Supabase: ${msg}` },
+      { success: false, error: `Lỗi import Supabase: ${msg}` },
       { status: 500 }
     );
   }
@@ -117,7 +112,7 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/admin/sync-users
- * Check current user count in both systems (no mutation)
+ * Check current Supabase user count
  */
 export async function GET(request: NextRequest) {
   const isAdmin = await verifyAdmin(request);
@@ -128,39 +123,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  let supabaseCount = 0;
-  let sheetCount = 0;
-
-  // Count Supabase users
-  try {
-    const { getAllUsers } = await import('@/lib/supabase/users');
-    const users = await getAllUsers();
-    supabaseCount = users.length;
-  } catch {}
-
-  // Count Google Sheet users
-  const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
-  if (scriptUrl) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch(`${scriptUrl}?action=getUsers`, {
-        redirect: 'follow',
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      const data = await res.json();
-      if (data?.success && Array.isArray(data.users)) {
-        sheetCount = data.users.length;
-      }
-    } catch {}
-  }
+  const users = await getAllUsers();
 
   return NextResponse.json({
     success: true,
-    supabaseCount,
-    sheetCount,
-    synced: supabaseCount >= sheetCount,
-    supabaseDashboard: `https://supabase.com/dashboard/project/${(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace('https://', '').replace('.supabase.co', '')}/editor/table/users`,
+    supabaseCount: users.length,
+    message: 'Supabase là nguồn dữ liệu chính. Google Sheet chỉ dùng để backup.',
   });
 }

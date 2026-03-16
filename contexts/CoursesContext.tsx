@@ -39,7 +39,7 @@ export function CoursesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     fetchCourses();
 
-    // Auto-refetch every 60 seconds to sync latest data from Google Sheets
+    // Auto-refetch every 60 seconds to sync latest data from Supabase
     const interval = setInterval(fetchCourses, 60 * 1000);
     return () => clearInterval(interval);
   }, []);

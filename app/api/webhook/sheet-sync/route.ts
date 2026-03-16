@@ -2,16 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 
 /**
  * POST /api/webhook/sheet-sync
- * Webhook endpoint for Google Apps Script to call when Sheet data changes.
- * Syncs users from Google Sheets → Supabase automatically.
+ * Webhook for syncing data between systems.
+ * Direction: Supabase is source of truth.
+ * This endpoint can be called to trigger Supabase → Sheet sync,
+ * or to import legacy Sheet data into Supabase (one-time migration).
  *
- * Auth: Uses SYNC_SECRET header instead of JWT (Apps Script can't hold JWT sessions)
- *
- * Body format:
- * { action: "syncAll" }                    → Full sync all users from Sheet
- * { action: "syncOne", user: {...} }       → Sync single user
- * { action: "syncBatch", users: [...] }    → Sync batch of users
- * { action: "deleteOne", email: "..." }    → Delete user from Supabase
+ * Auth: Uses SYNC_SECRET header
  */
 
 const CORS_HEADERS = {
@@ -35,7 +31,6 @@ function verifySyncSecret(request: NextRequest): boolean {
 }
 
 export async function POST(request: NextRequest) {
-  // Verify sync secret
   if (!verifySyncSecret(request)) {
     return NextResponse.json(
       { success: false, error: 'Unauthorized' },
@@ -45,20 +40,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const action = body.action || 'syncAll';
+    const action = body.action || 'exportUsers';
 
     switch (action) {
-      case 'syncAll':
-        return await handleSyncAll();
+      case 'importUsersFromSheet':
+        return await handleImportUsersFromSheet();
 
-      case 'syncOne':
-        return await handleSyncOne(body.user);
-
-      case 'syncBatch':
-        return await handleSyncBatch(body.users);
-
-      case 'deleteOne':
-        return await handleDeleteOne(body.email);
+      case 'exportUsers':
+        return await handleExportUsers();
 
       default:
         return NextResponse.json(
@@ -77,9 +66,9 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Full sync: fetch all users from Google Sheet via Apps Script, then upsert to Supabase
+ * One-time migration: Import users from Google Sheet → Supabase
  */
-async function handleSyncAll() {
+async function handleImportUsersFromSheet() {
   const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
   if (!scriptUrl) {
     return NextResponse.json(
@@ -88,7 +77,6 @@ async function handleSyncAll() {
     );
   }
 
-  // Fetch all users from Sheet (including password for sync)
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
 
@@ -119,10 +107,9 @@ async function handleSyncAll() {
 
     const stats = await syncSheetUsersToSupabase(mapped);
 
-    console.log(`[Webhook] Full sync complete: added=${stats.added}, updated=${stats.updated}, skipped=${stats.skipped}`);
     return NextResponse.json({
       success: true,
-      message: `Synced: ${stats.added} added, ${stats.updated} updated, ${stats.skipped} skipped`,
+      message: `Imported: ${stats.added} added, ${stats.updated} updated, ${stats.skipped} skipped`,
       stats,
     }, { headers: CORS_HEADERS });
   } catch (err) {
@@ -132,103 +119,26 @@ async function handleSyncAll() {
 }
 
 /**
- * Sync single user from Sheet edit
+ * Export Supabase users info (for Sheet sync or reporting)
  */
-async function handleSyncOne(user: Record<string, string> | undefined) {
-  if (!user || !user.email) {
-    return NextResponse.json(
-      { success: false, error: 'Missing user data' },
-      { status: 400, headers: CORS_HEADERS }
-    );
-  }
+async function handleExportUsers() {
+  const { getAllUsers } = await import('@/lib/supabase/users');
+  const users = await getAllUsers();
 
-  const { syncSheetUsersToSupabase } = await import('@/lib/supabase/users');
-  const mapped = [{
-    email: user.email || '',
-    name: user.name || '',
-    phone: user.phone || '',
-    role: mapRole(user.role || ''),
-    memberLevel: user.memberLevel || 'Free',
-    passwordHash: user.passwordHash || '',
-  }];
-
-  const stats = await syncSheetUsersToSupabase(mapped);
-
-  console.log(`[Webhook] Single user sync: ${user.email} → added=${stats.added}, updated=${stats.updated}`);
   return NextResponse.json({
     success: true,
-    message: `User ${user.email} synced`,
-    stats,
+    count: users.length,
+    users: users.map(u => ({
+      email: u.email,
+      name: u.name,
+      phone: u.phone,
+      role: u.role,
+      memberLevel: u.member_level,
+      createdAt: u.created_at,
+    })),
   }, { headers: CORS_HEADERS });
 }
 
-/**
- * Sync batch of users
- */
-async function handleSyncBatch(users: Array<Record<string, string>> | undefined) {
-  if (!users || !Array.isArray(users) || users.length === 0) {
-    return NextResponse.json(
-      { success: false, error: 'Missing or empty users array' },
-      { status: 400, headers: CORS_HEADERS }
-    );
-  }
-
-  const { syncSheetUsersToSupabase } = await import('@/lib/supabase/users');
-  const mapped = users.map((u) => ({
-    email: u.email || '',
-    name: u.name || '',
-    phone: u.phone || '',
-    role: mapRole(u.role || ''),
-    memberLevel: u.memberLevel || 'Free',
-    passwordHash: u.passwordHash || '',
-  }));
-
-  const stats = await syncSheetUsersToSupabase(mapped);
-
-  console.log(`[Webhook] Batch sync: ${users.length} users → added=${stats.added}, updated=${stats.updated}`);
-  return NextResponse.json({
-    success: true,
-    message: `Batch synced: ${stats.added} added, ${stats.updated} updated, ${stats.skipped} skipped`,
-    stats,
-  }, { headers: CORS_HEADERS });
-}
-
-/**
- * Delete a user from Supabase (when deleted from Sheet)
- */
-async function handleDeleteOne(email: string | undefined) {
-  if (!email) {
-    return NextResponse.json(
-      { success: false, error: 'Missing email' },
-      { status: 400, headers: CORS_HEADERS }
-    );
-  }
-
-  const { getSupabaseAdmin } = await import('@/lib/supabase/client');
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase
-    .from('users')
-    .delete()
-    .eq('email', email.toLowerCase().trim());
-
-  if (error) {
-    return NextResponse.json(
-      { success: false, error: `Failed to delete: ${error.message}` },
-      { status: 500, headers: CORS_HEADERS }
-    );
-  }
-
-  console.log(`[Webhook] Deleted user from Supabase: ${email}`);
-  return NextResponse.json({
-    success: true,
-    message: `User ${email} deleted from Supabase`,
-  }, { headers: CORS_HEADERS });
-}
-
-/**
- * Map Google Sheet role to Supabase role
- */
 function mapRole(role: string): string {
   const r = role.toLowerCase().trim();
   if (r === 'admin' || r === 'administrator' || r.includes('quản trị') || r === 'qtv') return 'admin';

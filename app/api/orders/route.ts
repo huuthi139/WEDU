@@ -1,7 +1,21 @@
 import { NextResponse } from 'next/server';
-import { getScriptUrl, getSheetId } from '@/lib/config';
+import { createOrder } from '@/lib/supabase/orders';
+import { syncOrderToSheet } from '@/lib/sync/sheetSync';
 
-const SHEET_NAME = 'Orders';
+function formatPaymentMethod(method: string): string {
+  const map: Record<string, string> = {
+    bank_transfer: 'Chuyển khoản ngân hàng',
+    momo: 'Ví MoMo',
+    vnpay: 'VNPay',
+  };
+  return map[method] || method;
+}
+
+function formatTimestamp(isoString: string): string {
+  const d = new Date(isoString);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
 
 export async function POST(request: Request) {
   try {
@@ -16,57 +30,40 @@ export async function POST(request: Request) {
       );
     }
 
-    // Sanitize each cell to prevent formula injection
+    // Sanitize each cell to prevent injection
     const sanitizedRowData = rowData.map((cell: unknown) => {
       if (typeof cell !== 'string') return cell;
       if (cell.length > 1000) return cell.slice(0, 1000);
-      // Prevent Google Sheets formula injection
       if (/^[=+\-@\t\r]/.test(cell)) return "'" + cell;
       return cell;
     });
 
-    // Method 1: Google Apps Script via GET
-    const gsScriptUrl = getScriptUrl();
-    try {
-      const params = new URLSearchParams({
-        action: 'appendOrder',
-        rowData: JSON.stringify(sanitizedRowData),
-      });
-      const scriptUrl = `${gsScriptUrl}?${params.toString()}`;
-        const res = await fetch(scriptUrl, { redirect: 'follow' });
-        const data = await res.json();
-
-        if (data.success) {
-          return NextResponse.json({ success: true, orderId });
-        }
-      } catch (err) {
-        console.error('Apps Script order error:', err);
-        // Fall through to other methods
-      }
-
-    // Method 2: Google Sheets API
-    if (process.env.GOOGLE_SHEETS_API_KEY) {
-      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${getSheetId()}/values/${encodeURIComponent(SHEET_NAME)}!A:K:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS&key=${process.env.GOOGLE_SHEETS_API_KEY}`;
-
-      const res = await fetch(appendUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values: [sanitizedRowData] }),
-      });
-
-      if (res.ok) {
-        return NextResponse.json({ success: true, orderId });
-      }
-    }
-
-    // Demo mode fallback
-    // Demo mode: order not saved to external system
-    return NextResponse.json({
-      success: true,
-      orderId,
-      mode: 'demo',
-      message: 'Order logged. Set GOOGLE_SCRIPT_URL env var to enable Google Sheets integration.',
+    // Save to Supabase (source of truth)
+    const order = await createOrder({
+      orderId: orderId || `WP-${crypto.randomUUID()}`,
+      email: String(sanitizedRowData[3] || ''),
+      name: String(sanitizedRowData[2] || ''),
+      phone: String(sanitizedRowData[4] || ''),
+      courseNames: String(sanitizedRowData[5] || ''),
+      courseIds: String(sanitizedRowData[6] || ''),
+      total: Number(sanitizedRowData[7]) || 0,
+      paymentMethod: String(sanitizedRowData[8] || ''),
     });
+
+    // Background sync to Google Sheet
+    syncOrderToSheet({
+      timestamp: String(sanitizedRowData[0] || formatTimestamp(new Date().toISOString())),
+      orderId: orderId || order?.order_id || '',
+      name: String(sanitizedRowData[2] || ''),
+      email: String(sanitizedRowData[3] || ''),
+      phone: String(sanitizedRowData[4] || ''),
+      courseNames: String(sanitizedRowData[5] || ''),
+      courseIds: String(sanitizedRowData[6] || ''),
+      total: Number(sanitizedRowData[7]) || 0,
+      paymentMethod: String(sanitizedRowData[8] || ''),
+    });
+
+    return NextResponse.json({ success: true, orderId: orderId || order?.order_id });
   } catch (error) {
     console.error('Order API error:', error);
     return NextResponse.json(

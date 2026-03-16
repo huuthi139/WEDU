@@ -1,27 +1,12 @@
-import { getSheetCsvUrl } from '@/lib/config';
-import { csvToObjects } from '@/lib/utils/csv';
-
-function getSheetUrl(sheetName: string): string {
-  return getSheetCsvUrl(sheetName);
-}
-
-export async function fetchUsers() {
-  const res = await fetch(getSheetUrl('Users'), { cache: 'no-store' });
-  const csv = await res.text();
-  return csvToObjects(csv);
-}
-
-export async function fetchOrders() {
-  const res = await fetch(getSheetUrl('Orders'), { cache: 'no-store' });
-  const csv = await res.text();
-  return csvToObjects(csv);
-}
-
-export async function fetchCourseVideos() {
-  const res = await fetch(getSheetUrl('Courses'), { cache: 'no-store' });
-  const csv = await res.text();
-  return csvToObjects(csv);
-}
+/**
+ * Google Sheets utilities
+ * NOTE: Google Sheet is now used only for backup sync (Supabase → Sheet).
+ * All primary data reads come from Supabase.
+ *
+ * These functions are kept for:
+ * - Legacy order submission (submitOrder from client)
+ * - Any remaining direct Sheet interactions
+ */
 
 interface OrderPayload {
   name: string;
