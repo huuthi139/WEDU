@@ -287,6 +287,71 @@
       var b = document.getElementById('error-box');
       if (b) { b.textContent = err; b.style.display = 'block'; }
     }
+
+    // JavaScript-based login for better UX (falls back to form POST if JS fails)
+    document.getElementById('login-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var errorBox = document.getElementById('error-box');
+      var successBox = document.getElementById('success-box');
+      var submitBtn = document.getElementById('submit-btn');
+      var emailInput = document.getElementById('email');
+      var passwordInput = document.getElementById('password');
+
+      var email = emailInput.value.trim();
+      var password = passwordInput.value;
+
+      if (!email || !password) {
+        errorBox.textContent = 'Vui lòng nhập email và mật khẩu';
+        errorBox.style.display = 'block';
+        successBox.style.display = 'none';
+        return;
+      }
+
+      // Show loading state
+      errorBox.style.display = 'none';
+      successBox.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner"></span>Đang đăng nhập...';
+
+      fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, password: password }),
+      })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data.success) {
+          // Store user data
+          try {
+            localStorage.setItem('wedu-user', JSON.stringify(data.user));
+          } catch(e) { /* ignore */ }
+
+          // Also set display cookie for server-side reads
+          try {
+            var encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data.user))));
+            document.cookie = 'wedu-user=' + encoded + ';path=/;max-age=' + (60*60*24*7) + ';samesite=strict';
+          } catch(e) { /* ignore */ }
+
+          successBox.textContent = 'Đăng nhập thành công! Đang chuyển hướng...';
+          successBox.style.display = 'block';
+
+          setTimeout(function() {
+            window.location.href = '/dashboard';
+          }, 500);
+        } else {
+          errorBox.textContent = data.error || 'Email hoặc mật khẩu không đúng';
+          errorBox.style.display = 'block';
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Đăng nhập';
+        }
+      })
+      .catch(function(err) {
+        console.error('Login fetch error:', err);
+        // Fallback: submit the form normally
+        document.getElementById('login-form').removeEventListener('submit', arguments.callee);
+        document.getElementById('login-form').submit();
+      });
+    });
   </script>
 </body>
 </html>
