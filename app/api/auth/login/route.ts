@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { verifyPassword } from '@/lib/auth/password';
-import { getUserByEmail } from '@/lib/supabase/users';
+import { verifyPassword, hashPassword } from '@/lib/auth/password';
+import { getUserByEmail, updateUserProfile } from '@/lib/supabase/users';
 import { signToken } from '@/lib/auth/jwt';
 import { normalizeRole } from '@/lib/auth/permissions';
 import { apiSuccess, ERR } from '@/lib/api/response';
 import { logger } from '@/lib/telemetry/logger';
+import { tryAutoBootstrap } from '@/lib/supabase/bootstrap';
 
 const SESSION_COOKIE = 'wedu-token';
 
@@ -22,10 +23,19 @@ export async function POST(request: Request) {
     let userProfile;
     try {
       userProfile = await getUserByEmail(email);
+
+      // If user not found, try auto-bootstrap (sync from Google Sheet)
+      // This handles the case where Supabase was wiped/reset
+      if (!userProfile) {
+        const bootstrapped = await tryAutoBootstrap();
+        if (bootstrapped) {
+          logger.info('auth.login', 'Auto-bootstrap triggered, retrying lookup', { email });
+          userProfile = await getUserByEmail(email);
+        }
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error('auth.login', 'DB lookup failed', { email, error: errMsg });
-      // Check for common issues and provide helpful error messages
       if (errMsg.includes('Thiếu biến môi trường') || errMsg.includes('SUPABASE')) {
         return ERR.INTERNAL('Lỗi cấu hình hệ thống. Vui lòng liên hệ quản trị viên.');
       }
@@ -37,20 +47,22 @@ export async function POST(request: Request) {
 
     if (!userProfile) {
       logger.info('auth.login', 'Login failed: user not found', { email });
-      // Generic error message to prevent user enumeration
       return ERR.INVALID_CREDENTIALS();
     }
 
-    // Verify password
+    // If user has no password (synced from Google Sheet), set the provided password as their new password
     if (!userProfile.password_hash) {
-      logger.warn('auth.login', 'User has no password hash', { email });
-      return ERR.INVALID_CREDENTIALS();
-    }
-
-    const passwordValid = await verifyPassword(password, userProfile.password_hash);
-    if (!passwordValid) {
-      logger.info('auth.login', 'Login failed: invalid password', { email });
-      return ERR.INVALID_CREDENTIALS();
+      logger.info('auth.login', 'Setting initial password for Sheet user', { email });
+      const newHash = await hashPassword(password);
+      await updateUserProfile(email, { password_hash: newHash });
+      // Password is now set, continue login
+    } else {
+      // Verify password
+      const passwordValid = await verifyPassword(password, userProfile.password_hash);
+      if (!passwordValid) {
+        logger.info('auth.login', 'Login failed: invalid password', { email });
+        return ERR.INVALID_CREDENTIALS();
+      }
     }
 
     // Create JWT session
