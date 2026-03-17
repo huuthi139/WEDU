@@ -21,8 +21,20 @@ export async function GET() {
     const dbUser = await getUserByEmail(sessionUser.email);
 
     if (!dbUser) {
-      logger.warn('auth.me', 'User in session but not found in DB', { email: sessionUser.email });
-      return ERR.UNAUTHORIZED('Tài khoản không tồn tại');
+      logger.warn('auth.me', 'User in session but not found in DB, using session data', { email: sessionUser.email });
+      // Fallback to session data (supports demo mode / DB out of sync)
+      return apiSuccess({
+        user: {
+          id: '',
+          email: sessionUser.email,
+          name: sessionUser.name,
+          role: sessionUser.role,
+          memberLevel: sessionUser.memberLevel,
+          phone: '',
+          avatarUrl: null,
+        },
+        permissions: sessionUser.permissions,
+      });
     }
 
     const role = normalizeRole(dbUser.role);
