@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const REQUIRED_TABLES = ['courses', 'orders', 'enrollments', 'reviews', 'chapters'];
+const REQUIRED_TABLES = ['users', 'courses', 'orders', 'enrollments', 'reviews', 'chapters'];
 
 async function checkTable(name: string): Promise<boolean> {
   try {
@@ -64,6 +64,21 @@ const MIGRATION_SQL = `
 -- WEDU Platform - Tạo tất cả bảng cần thiết
 -- Copy toàn bộ SQL này → Supabase SQL Editor → Run
 -- =============================================
+
+-- 0. USERS (authentication & profiles)
+CREATE TABLE IF NOT EXISTS public.users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  phone TEXT DEFAULT '',
+  password_hash TEXT DEFAULT '',
+  role TEXT DEFAULT 'user' CHECK (role IN ('admin', 'sub_admin', 'instructor', 'user')),
+  member_level TEXT DEFAULT 'Free' CHECK (member_level IN ('Free', 'Premium', 'VIP')),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
 
 -- 1. COURSES
 CREATE TABLE IF NOT EXISTS public.courses (
@@ -146,6 +161,7 @@ CREATE INDEX IF NOT EXISTS idx_courses_is_active ON public.courses(is_active);
 CREATE INDEX IF NOT EXISTS idx_courses_category ON public.courses(category);
 
 -- RLS
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.courses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.enrollments ENABLE ROW LEVEL SECURITY;
@@ -153,6 +169,7 @@ ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chapters ENABLE ROW LEVEL SECURITY;
 
 -- Policies
+DO $$ BEGIN CREATE POLICY "allow_all_users" ON public.users FOR ALL USING (true) WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY "allow_all_courses" ON public.courses FOR ALL USING (true) WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY "allow_all_orders" ON public.orders FOR ALL USING (true) WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY "allow_all_enrollments" ON public.enrollments FOR ALL USING (true) WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;

@@ -21,15 +21,19 @@ export async function POST(request: Request) {
     const userProfile = await getUserByEmail(email);
 
     if (userProfile) {
-      // Verify password
-      if (userProfile.password_hash) {
-        const isValid = await verifyPassword(password, userProfile.password_hash);
-        if (!isValid) {
-          return NextResponse.json(
-            { success: false, error: 'Email hoặc mật khẩu không đúng' },
-            { status: 401 }
-          );
-        }
+      // Verify password - reject if no password_hash is set
+      if (!userProfile.password_hash) {
+        return NextResponse.json(
+          { success: false, error: 'Tài khoản chưa thiết lập mật khẩu. Vui lòng dùng chức năng Quên mật khẩu.' },
+          { status: 401 }
+        );
+      }
+      const isValid = await verifyPassword(password, userProfile.password_hash);
+      if (!isValid) {
+        return NextResponse.json(
+          { success: false, error: 'Email hoặc mật khẩu không đúng' },
+          { status: 401 }
+        );
       }
 
       const role = isAdminRole(userProfile.role) ? 'admin'

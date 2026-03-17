@@ -20,46 +20,8 @@ const levelColors: Record<string, { bg: string; text: string; border: string }> 
 export default function Dashboard() {
   const { user, isLoading } = useAuth();
   const { enrollments, completedCoursesCount, totalHoursLearned, currentStreak } = useEnrollment();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/login');
-    }
-  }, [user, isLoading, router]);
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-dark flex items-center justify-center">
-        <div className="text-center">
-          <svg className="w-10 h-10 animate-spin text-teal mx-auto mb-4" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          <p className="text-gray-400">Đang tải...</p>
-        </div>
-      </div>
-    );
-  }
-
   const { courses } = useCourses();
-
-  if (!user) return null;
-
-  const colors = levelColors[user.memberLevel] || levelColors.Free;
-
-  // Get enrolled course objects with progress
-  const enrolledIds = new Set(enrollments.map(e => e.courseId));
-  const enrolledCourses = enrollments
-    .map(enrollment => {
-      const course = courses.find(c => c.id === enrollment.courseId);
-      if (!course) return null;
-      return { ...course, progress: enrollment.progress };
-    })
-    .filter((c): c is NonNullable<typeof c> => c !== null);
-
-  const inProgressCourses = enrolledCourses.filter(c => (c.progress ?? 0) < 100);
-  const recommendedCourses = courses.filter(c => !enrolledIds.has(c.id)).slice(0, 3);
+  const router = useRouter();
 
   // Calculate real weekly activity from enrollments
   const weeklyActivity = useMemo(() => {
@@ -81,6 +43,43 @@ export default function Dashboard() {
       return { day, hours };
     });
   }, [enrollments]);
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login');
+    }
+  }, [user, isLoading, router]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-dark flex items-center justify-center">
+        <div className="text-center">
+          <svg className="w-10 h-10 animate-spin text-teal mx-auto mb-4" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p className="text-gray-400">Đang tải...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) return null;
+
+  const colors = levelColors[user.memberLevel] || levelColors.Free;
+
+  // Get enrolled course objects with progress
+  const enrolledIds = new Set(enrollments.map(e => e.courseId));
+  const enrolledCourses = enrollments
+    .map(enrollment => {
+      const course = courses.find(c => c.id === enrollment.courseId);
+      if (!course) return null;
+      return { ...course, progress: enrollment.progress };
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null);
+
+  const inProgressCourses = enrolledCourses.filter(c => (c.progress ?? 0) < 100);
+  const recommendedCourses = courses.filter(c => !enrolledIds.has(c.id)).slice(0, 3);
 
   return (
     <div className="min-h-screen bg-dark">

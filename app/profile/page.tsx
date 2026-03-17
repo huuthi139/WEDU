@@ -435,7 +435,7 @@ export default function Profile() {
                   </div>
                   <div>
                     <p className="text-white text-sm font-semibold">Mật khẩu đã được thiết lập</p>
-                    <p className="text-gray-500 text-xs">Nhấn "Đổi mật khẩu" để thay đổi</p>
+                    <p className="text-gray-500 text-xs">Nhấn &ldquo;Đổi mật khẩu&rdquo; để thay đổi</p>
                   </div>
                 </div>
               )}
