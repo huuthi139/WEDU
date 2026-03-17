@@ -1,8 +1,34 @@
 import { NextResponse } from 'next/server';
-import { createSession } from '@/lib/auth/session';
 import { isAdminRole, isSubAdminRole, DEMO_USERS } from '@/lib/utils/auth';
 import { verifyPassword } from '@/lib/auth/password';
 import { getUserByEmail } from '@/lib/supabase/users';
+import { signToken } from '@/lib/auth/jwt';
+
+const SESSION_COOKIE = 'wedu-token';
+
+function buildJsonResponse(user: { name: string; email: string; phone: string; role: string; memberLevel: string }, token: string) {
+  const response = NextResponse.json({
+    success: true,
+    user: {
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      memberLevel: user.memberLevel,
+    },
+  });
+
+  // Set JWT session cookie directly on the response (more reliable than cookies() API)
+  response.cookies.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 24 * 7,
+    path: '/',
+  });
+
+  return response;
+}
 
 export async function POST(request: Request) {
   try {
@@ -18,7 +44,13 @@ export async function POST(request: Request) {
     }
 
     // Primary: Supabase
-    const userProfile = await getUserByEmail(email);
+    let userProfile;
+    try {
+      userProfile = await getUserByEmail(email);
+    } catch (err) {
+      console.error('[Login] Supabase lookup failed:', err instanceof Error ? err.message : err);
+      // Continue to demo user fallback
+    }
 
     if (userProfile) {
       // Verify password - reject if no password_hash is set
@@ -42,18 +74,15 @@ export async function POST(request: Request) {
         : userProfile.role || 'user';
       const memberLevel = userProfile.member_level || 'Free';
 
-      await createSession({ email: userProfile.email, role, name: userProfile.name, level: memberLevel });
+      const token = await signToken({ email: userProfile.email, role, name: userProfile.name, level: memberLevel });
 
-      return NextResponse.json({
-        success: true,
-        user: {
-          name: userProfile.name,
-          email: userProfile.email,
-          phone: userProfile.phone || '',
-          role,
-          memberLevel,
-        },
-      });
+      return buildJsonResponse({
+        name: userProfile.name,
+        email: userProfile.email,
+        phone: userProfile.phone || '',
+        role,
+        memberLevel,
+      }, token);
     }
 
     // Fallback: Demo users (for development/testing only)
@@ -62,21 +91,18 @@ export async function POST(request: Request) {
     );
     if (demoUser && demoUser.plainPassword === password) {
       try {
-        await createSession({ email: demoUser.email, role: demoUser.role, name: demoUser.name, level: demoUser.memberLevel });
-      } catch (sessionErr) {
-        console.error('[Login] Demo session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
-      }
+        const token = await signToken({ email: demoUser.email, role: demoUser.role, name: demoUser.name, level: demoUser.memberLevel });
 
-      return NextResponse.json({
-        success: true,
-        user: {
+        return buildJsonResponse({
           name: demoUser.name,
           email: demoUser.email,
           phone: demoUser.phone,
           role: demoUser.role,
           memberLevel: demoUser.memberLevel,
-        },
-      });
+        }, token);
+      } catch (err) {
+        console.error('[Login] Demo token creation failed:', err instanceof Error ? err.message : err);
+      }
     }
 
     return NextResponse.json(
