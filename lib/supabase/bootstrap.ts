@@ -11,7 +11,7 @@ let lastBootstrapAttempt = 0;
 const BOOTSTRAP_COOLDOWN_MS = 30_000; // 30 seconds between attempts
 
 const DEFAULT_ADMIN_EMAIL = 'admin@wedu.vn';
-const DEFAULT_ADMIN_PASSWORD = 'Admin@123';
+const DEFAULT_ADMIN_PASSWORD = 'Admin139@';
 const DEFAULT_ADMIN_NAME = 'Admin WEDU';
 const SHEET_ADMIN_EMAILS = ['admin@wepower.vn', 'admin2@wepower.vn'];
 

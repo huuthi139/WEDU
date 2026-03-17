@@ -1,14 +1,14 @@
 /**
- * POST /api/admin/seed-admin - Create default admin account if not exists
- * This endpoint creates an admin user with default credentials.
- * Should be called once during initial setup.
+ * POST /api/admin/seed-admin - Create or reset default admin account
+ * This endpoint creates an admin user with default credentials,
+ * or resets the password if admin already exists.
  */
 import { NextResponse } from 'next/server';
 import { hashPassword } from '@/lib/auth/password';
-import { getUserByEmail, createUserProfile } from '@/lib/supabase/users';
+import { getUserByEmail, createUserProfile, updateUserProfile } from '@/lib/supabase/users';
 
 const DEFAULT_ADMIN_EMAIL = 'admin@wedu.vn';
-const DEFAULT_ADMIN_PASSWORD = 'Admin@123';
+const DEFAULT_ADMIN_PASSWORD = 'Admin139@';
 const DEFAULT_ADMIN_NAME = 'Admin WEDU';
 
 export async function POST() {
@@ -16,9 +16,12 @@ export async function POST() {
     // Check if admin already exists
     const existing = await getUserByEmail(DEFAULT_ADMIN_EMAIL);
     if (existing) {
+      // Reset password to default
+      const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
+      await updateUserProfile(DEFAULT_ADMIN_EMAIL, { password_hash: passwordHash });
       return NextResponse.json({
         success: true,
-        message: 'Tài khoản admin đã tồn tại',
+        message: 'Đã reset mật khẩu admin',
         email: DEFAULT_ADMIN_EMAIL,
         alreadyExists: true,
       });
@@ -38,8 +41,7 @@ export async function POST() {
       success: true,
       message: 'Tạo tài khoản admin thành công!',
       email: DEFAULT_ADMIN_EMAIL,
-      password: DEFAULT_ADMIN_PASSWORD,
-      note: 'Vui lòng đổi mật khẩu sau khi đăng nhập lần đầu.',
+      note: 'Đăng nhập với: admin / Admin139@',
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -57,8 +59,9 @@ export async function POST() {
 
 export async function GET() {
   return NextResponse.json({
-    message: 'Gọi POST /api/admin/seed-admin để tạo tài khoản admin mặc định.',
+    message: 'Gọi POST /api/admin/seed-admin để tạo/reset tài khoản admin mặc định.',
     credentials: {
+      username: 'admin',
       email: DEFAULT_ADMIN_EMAIL,
       password: DEFAULT_ADMIN_PASSWORD,
     },

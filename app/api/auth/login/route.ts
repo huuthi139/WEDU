@@ -12,12 +12,15 @@ const SESSION_COOKIE = 'wedu-token';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase().slice(0, 254) : '';
+    let emailOrUsername = typeof body.email === 'string' ? body.email.trim().toLowerCase().slice(0, 254) : '';
     const password = typeof body.password === 'string' ? body.password.slice(0, 128) : '';
 
-    if (!email || !password) {
-      return ERR.VALIDATION('Email và mật khẩu không được để trống');
+    if (!emailOrUsername || !password) {
+      return ERR.VALIDATION('Email/tên đăng nhập và mật khẩu không được để trống');
     }
+
+    // If input doesn't contain "@", treat as username and append @wedu.vn
+    const email = emailOrUsername.includes('@') ? emailOrUsername : `${emailOrUsername}@wedu.vn`;
 
     // Look up user in database (single source of truth)
     let userProfile;

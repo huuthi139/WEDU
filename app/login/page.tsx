@@ -27,9 +27,7 @@ export default function Login() {
     const newErrors: {email?: string; password?: string} = {};
 
     if (!formData.email) {
-      newErrors.email = 'Vui lòng nhập email';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Email không hợp lệ';
+      newErrors.email = 'Vui lòng nhập email hoặc tên đăng nhập';
     }
 
     if (!formData.password) {
@@ -92,18 +90,18 @@ export default function Login() {
             {/* Email */}
             <div>
               <label htmlFor="email" className="block text-sm font-semibold text-white mb-2">
-                Email
+                Email / Tên đăng nhập
               </label>
               <input
                 id="email"
                 name="email"
-                type="email"
+                type="text"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className={`w-full px-4 py-3 bg-dark border rounded-lg text-white placeholder-gray-500 focus:outline-none transition-colors ${
                   errors.email ? 'border-red-500/50' : 'border-white/[0.06] focus:border-teal'
                 }`}
-                placeholder="example@email.com"
+                placeholder="admin hoặc example@email.com"
               />
               {errors.email && (
                 <p className="mt-1 text-sm text-red-400">{errors.email}</p>
