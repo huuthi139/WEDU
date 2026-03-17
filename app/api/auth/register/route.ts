@@ -1,9 +1,10 @@
-import { NextResponse } from 'next/server';
 import { hashPassword } from '@/lib/auth/password';
 import { createSession } from '@/lib/auth/session';
 import { emailExists, createUserProfile } from '@/lib/supabase/users';
 import { syncUserToSheet } from '@/lib/sync/sheetSync';
 import { sendWelcomeEmail } from '@/lib/email/send';
+import { apiSuccess, ERR } from '@/lib/api/response';
+import { logger } from '@/lib/telemetry/logger';
 
 export async function POST(request: Request) {
   try {
@@ -14,71 +15,51 @@ export async function POST(request: Request) {
     const phone = typeof body.phone === 'string' ? body.phone.trim().slice(0, 15) : '';
 
     if (!name || name.length < 2) {
-      return NextResponse.json(
-        { success: false, error: 'Tên phải có ít nhất 2 ký tự' },
-        { status: 400 }
-      );
+      return ERR.VALIDATION('Tên phải có ít nhất 2 ký tự');
     }
 
     const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/;
     if (!email || !emailRegex.test(email)) {
-      return NextResponse.json(
-        { success: false, error: 'Email không hợp lệ' },
-        { status: 400 }
-      );
+      return ERR.VALIDATION('Email không hợp lệ');
     }
 
     if (!password || password.length < 6) {
-      return NextResponse.json(
-        { success: false, error: 'Mật khẩu phải có ít nhất 6 ký tự' },
-        { status: 400 }
-      );
+      return ERR.VALIDATION('Mật khẩu phải có ít nhất 6 ký tự');
     }
 
-    // Hash password
     const hashedPassword = await hashPassword(password);
 
-    // Check if email already exists in Supabase
     if (await emailExists(email)) {
-      return NextResponse.json(
-        { success: false, error: 'Email đã được sử dụng. Vui lòng dùng email khác.' },
-        { status: 409 }
-      );
+      return ERR.CONFLICT('Email đã được sử dụng. Vui lòng dùng email khác.');
     }
 
     // Create user in Supabase (source of truth)
-    const userProfile = await createUserProfile({
+    await createUserProfile({
       email, name, phone, passwordHash: hashedPassword, role: 'user', memberLevel: 'Free',
     });
 
-    // Create session
+    // Create session (set httpOnly cookie)
     try {
       await createSession({ email, role: 'user', name, level: 'Free' });
     } catch (sessionErr) {
-      console.error('[Register] Session creation failed:', sessionErr instanceof Error ? sessionErr.message : sessionErr);
+      logger.error('auth.register', 'Session creation failed', {
+        email,
+        error: sessionErr instanceof Error ? sessionErr.message : String(sessionErr),
+      });
     }
 
-    // Background sync to Google Sheet (non-blocking, fire-and-forget)
+    // Background sync to Google Sheet (non-blocking)
     syncUserToSheet({ name, email, passwordHash: hashedPassword, phone });
 
     // Send welcome email (non-blocking)
     sendWelcomeEmail(email, name).catch(() => {});
 
-    return NextResponse.json({
-      success: true,
-      user: {
-        name: userProfile.name,
-        email: userProfile.email,
-        phone: userProfile.phone,
-        role: userProfile.role,
-        memberLevel: userProfile.member_level,
-      },
-    });
+    logger.info('auth.register', 'User registered', { email });
+
+    // Return success only - client hydrates from /api/auth/me
+    return apiSuccess({ registered: true });
   } catch (error) {
-    console.error('[Register] Error:', error instanceof Error ? error.message : error);
-    return NextResponse.json(
-      { success: false, error: 'Lỗi hệ thống. Vui lòng thử lại.' },
-      { status: 500 }
-    );
+    logger.error('auth.register', 'Error', { error: error instanceof Error ? error.message : String(error) });
+    return ERR.INTERNAL();
   }
 }

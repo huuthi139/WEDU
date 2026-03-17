@@ -1,33 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { hasAdminAccess } from '@/lib/utils/auth';
+import { requireAdmin, AuthError } from '@/lib/auth/guards';
 import { getAllUsers } from '@/lib/supabase/users';
+import { apiSuccess, ERR } from '@/lib/api/response';
 
-/** Verify admin or sub_admin access via JWT session cookie */
-async function verifyAdmin(request: NextRequest): Promise<boolean> {
+async function handleFetchUsers() {
   try {
-    const token = request.cookies.get('wedu-token')?.value;
-    if (!token) return false;
-    const secret = process.env.JWT_SECRET;
-    if (!secret || secret.length < 32) return false;
-    const { jwtVerify } = await import('jose');
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret));
-    const role = (payload as { role?: string }).role || '';
-    return hasAdminAccess(role);
-  } catch {
-    return false;
-  }
-}
-
-async function handleFetchUsers(request: NextRequest): Promise<NextResponse> {
-  const isAdmin = await verifyAdmin(request);
-  if (!isAdmin) {
-    const clientRole = request.headers.get('x-user-role');
-    if (!clientRole || !hasAdminAccess(clientRole)) {
-      return NextResponse.json(
-        { success: false, error: 'Không có quyền truy cập', users: [] },
-        { status: 403 }
-      );
+    await requireAdmin();
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN();
     }
+    return ERR.UNAUTHORIZED();
   }
 
   const allUsers = await getAllUsers();
@@ -40,13 +22,13 @@ async function handleFetchUsers(request: NextRequest): Promise<NextResponse> {
     Phone: u.phone || '',
   }));
 
-  return NextResponse.json({ success: true, users, source: 'supabase' });
+  return apiSuccess({ users, source: 'supabase' });
 }
 
-export async function GET(request: NextRequest) {
-  return handleFetchUsers(request);
+export async function GET() {
+  return handleFetchUsers();
 }
 
-export async function POST(request: NextRequest) {
-  return handleFetchUsers(request);
+export async function POST() {
+  return handleFetchUsers();
 }

@@ -29,16 +29,12 @@ export function StaffTab({ isMainAdmin }: StaffTabProps) {
   const fetchStaff = useCallback(async () => {
     setLoading(true);
     try {
-      const savedUser = localStorage.getItem('wedu-user');
-      const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
-      const res = await fetch('/api/admin/staff', {
-        headers: { 'x-user-role': userRole },
-      });
+      const res = await fetch('/api/admin/staff', { credentials: 'include' });
       const data = await res.json();
       if (data.success) {
-        setStaff(data.staff);
+        setStaff(data.data?.staff || data.staff || []);
       } else {
-        setError(data.error || 'Không thể tải danh sách');
+        setError(data.error?.message || data.error || 'Không thể tải danh sách');
       }
     } catch {
       setError('Lỗi kết nối');
@@ -56,12 +52,11 @@ export function StaffTab({ isMainAdmin }: StaffTabProps) {
     setError(null);
     setSuccessMsg(null);
     try {
-      const savedUser = localStorage.getItem('wedu-user');
-      const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
       const res = await fetch('/api/admin/staff', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, role: newRole }),
+        credentials: 'include',
       });
       const data = await res.json();
       if (data.success) {

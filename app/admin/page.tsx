@@ -314,10 +314,7 @@ export default function AdminDashboard() {
     setStudentsError(null);
 
     try {
-      // Step 1: Try server API
-      const savedUser = localStorage.getItem('wedu-user');
-      const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
-
+      // Step 1: Try server API (auth via httpOnly cookie)
       let apiData: {
         success?: boolean;
         users?: SheetUser[];
@@ -329,7 +326,8 @@ export default function AdminDashboard() {
         const res = await fetch('/api/auth/users', {
           method: 'POST',
           cache: 'no-store',
-          headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
         });
         apiData = await res.json();
       } catch {
@@ -388,11 +386,10 @@ export default function AdminDashboard() {
 
   const saveCourseToAPI = useCallback(async (course: Course): Promise<boolean> => {
     try {
-      const savedUser = localStorage.getItem('wedu-user');
-      const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
       const res = await fetch('/api/admin/courses', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           id: course.id,
           title: course.title,
@@ -428,11 +425,9 @@ export default function AdminDashboard() {
   // Delete a course via API
   const deleteCourseFromAPI = useCallback(async (courseId: string) => {
     try {
-      const savedUser = localStorage.getItem('wedu-user');
-      const userRole = savedUser ? (JSON.parse(savedUser).role || 'user') : 'user';
       const res = await fetch(`/api/admin/courses?id=${courseId}`, {
         method: 'DELETE',
-        headers: { 'x-user-role': userRole },
+        credentials: 'include',
       });
       const data = await res.json();
       return data.success;

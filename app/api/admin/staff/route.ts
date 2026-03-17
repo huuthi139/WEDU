@@ -1,42 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { isAdminRole } from '@/lib/utils/auth';
+import { NextRequest } from 'next/server';
+import { requirePermission, requireAuth, AuthError } from '@/lib/auth/guards';
+import { apiSuccess, ERR } from '@/lib/api/response';
+import { logger } from '@/lib/telemetry/logger';
 
-/** Verify full admin access (not sub_admin) via JWT session cookie */
-async function verifyAdmin(request: NextRequest): Promise<boolean> {
+/** GET - List all staff members */
+export async function GET() {
   try {
-    const token = request.cookies.get('wedu-token')?.value;
-    if (!token) return false;
-    const secret = process.env.JWT_SECRET;
-    if (!secret || secret.length < 32) return false;
-    const { jwtVerify } = await import('jose');
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret));
-    const role = (payload as { role?: string }).role || '';
-    return isAdminRole(role);
-  } catch {
-    return false;
-  }
-}
-
-function forbidden() {
-  return NextResponse.json(
-    { success: false, error: 'Chỉ admin mới có quyền quản lý nhân sự' },
-    { status: 403 }
-  );
-}
-
-/** GET - List all staff members (users with role != 'user') */
-export async function GET(request: NextRequest) {
-  const isAdmin = await verifyAdmin(request);
-  if (!isAdmin) {
-    const clientRole = request.headers.get('x-user-role');
-    if (!clientRole || !isAdminRole(clientRole)) return forbidden();
+    await requirePermission('admin.staff.manage');
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN('Chỉ admin mới có quyền quản lý nhân sự');
+    }
+    return ERR.UNAUTHORIZED();
   }
 
   try {
     const { getAllUsers } = await import('@/lib/supabase/users');
     const allUsers = await getAllUsers();
 
-    // Return all users with their roles - admin can see who is staff
     const staff = allUsers.map(u => ({
       id: u.id,
       email: u.email,
@@ -47,19 +28,23 @@ export async function GET(request: NextRequest) {
       createdAt: u.created_at,
     }));
 
-    return NextResponse.json({ success: true, staff });
+    return apiSuccess({ staff });
   } catch (err) {
-    console.error('[Staff API] GET error:', err instanceof Error ? err.message : err);
-    return NextResponse.json({ success: false, error: 'Không thể tải danh sách nhân sự' }, { status: 500 });
+    logger.error('admin.staff.get', 'Failed to list staff', { error: err instanceof Error ? err.message : String(err) });
+    return ERR.INTERNAL('Không thể tải danh sách nhân sự');
   }
 }
 
-/** POST - Update user role (promote/demote staff) */
+/** POST - Update user role */
 export async function POST(request: NextRequest) {
-  const isAdmin = await verifyAdmin(request);
-  if (!isAdmin) {
-    const clientRole = request.headers.get('x-user-role');
-    if (!clientRole || !isAdminRole(clientRole)) return forbidden();
+  let adminUser;
+  try {
+    adminUser = await requirePermission('admin.staff.manage');
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN('Chỉ admin mới có quyền quản lý nhân sự');
+    }
+    return ERR.UNAUTHORIZED();
   }
 
   try {
@@ -68,58 +53,46 @@ export async function POST(request: NextRequest) {
     const newRole = typeof body.role === 'string' ? body.role.trim() : '';
 
     if (!email) {
-      return NextResponse.json({ success: false, error: 'Thiếu email' }, { status: 400 });
+      return ERR.VALIDATION('Thiếu email');
     }
 
-    // Validate allowed roles
     const validRoles = ['user', 'sub_admin', 'instructor'];
     if (!validRoles.includes(newRole)) {
-      return NextResponse.json(
-        { success: false, error: `Role không hợp lệ. Chỉ chấp nhận: ${validRoles.join(', ')}` },
-        { status: 400 }
-      );
+      return ERR.VALIDATION(`Role không hợp lệ. Chỉ chấp nhận: ${validRoles.join(', ')}`);
     }
 
     // Cannot change own role
-    try {
-      const token = request.cookies.get('wedu-token')?.value;
-      if (token) {
-        const { jwtVerify } = await import('jose');
-        const secret = process.env.JWT_SECRET;
-        if (secret) {
-          const { payload } = await jwtVerify(token, new TextEncoder().encode(secret));
-          if ((payload as { email?: string }).email?.toLowerCase() === email) {
-            return NextResponse.json(
-              { success: false, error: 'Không thể thay đổi quyền của chính mình' },
-              { status: 400 }
-            );
-          }
-        }
-      }
-    } catch { /* continue */ }
+    if (adminUser.email.toLowerCase() === email) {
+      return ERR.VALIDATION('Không thể thay đổi quyền của chính mình');
+    }
 
-    // Cannot change role of main admin
     const { getUserByEmail, updateUserProfile } = await import('@/lib/supabase/users');
     const targetUser = await getUserByEmail(email);
     if (!targetUser) {
-      return NextResponse.json({ success: false, error: 'Không tìm thấy người dùng' }, { status: 404 });
+      return ERR.NOT_FOUND('Không tìm thấy người dùng');
     }
 
     if (targetUser.role === 'admin') {
-      return NextResponse.json(
-        { success: false, error: 'Không thể thay đổi quyền của admin chính' },
-        { status: 400 }
-      );
+      return ERR.FORBIDDEN('Không thể thay đổi quyền của admin chính');
     }
 
-    await updateUserProfile(email, { role: newRole as any });
+    await updateUserProfile(email, { role: newRole as 'user' | 'sub_admin' | 'instructor' });
 
-    return NextResponse.json({
-      success: true,
+    logger.info('admin.staff.update', 'Role updated', {
+      actor: adminUser.email,
+      target: email,
+      oldRole: targetUser.role,
+      newRole,
+    });
+
+    return apiSuccess({
       message: `Đã cập nhật quyền của ${targetUser.name} thành ${newRole}`,
     });
   } catch (err) {
-    console.error('[Staff API] POST error:', err instanceof Error ? err.message : err);
-    return NextResponse.json({ success: false, error: 'Lỗi hệ thống' }, { status: 500 });
+    if (err instanceof AuthError) {
+      return err.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN();
+    }
+    logger.error('admin.staff.update', 'Failed to update role', { error: err instanceof Error ? err.message : String(err) });
+    return ERR.INTERNAL();
   }
 }

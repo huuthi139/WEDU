@@ -1,34 +1,12 @@
 import { NextResponse } from 'next/server';
-import { isAdminRole, isSubAdminRole, DEMO_USERS } from '@/lib/utils/auth';
 import { verifyPassword } from '@/lib/auth/password';
 import { getUserByEmail } from '@/lib/supabase/users';
 import { signToken } from '@/lib/auth/jwt';
+import { normalizeRole } from '@/lib/auth/permissions';
+import { apiSuccess, ERR } from '@/lib/api/response';
+import { logger } from '@/lib/telemetry/logger';
 
 const SESSION_COOKIE = 'wedu-token';
-
-function buildJsonResponse(user: { name: string; email: string; phone: string; role: string; memberLevel: string }, token: string) {
-  const response = NextResponse.json({
-    success: true,
-    user: {
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      memberLevel: user.memberLevel,
-    },
-  });
-
-  // Set JWT session cookie directly on the response (more reliable than cookies() API)
-  response.cookies.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 7,
-    path: '/',
-  });
-
-  return response;
-}
 
 export async function POST(request: Request) {
   try {
@@ -37,78 +15,63 @@ export async function POST(request: Request) {
     const password = typeof body.password === 'string' ? body.password.slice(0, 128) : '';
 
     if (!email || !password) {
-      return NextResponse.json(
-        { success: false, error: 'Email và mật khẩu không được để trống' },
-        { status: 400 }
-      );
+      return ERR.VALIDATION('Email và mật khẩu không được để trống');
     }
 
-    // Primary: Supabase
+    // Look up user in database (single source of truth)
     let userProfile;
     try {
       userProfile = await getUserByEmail(email);
     } catch (err) {
-      console.error('[Login] Supabase lookup failed:', err instanceof Error ? err.message : err);
-      // Continue to demo user fallback
+      logger.error('auth.login', 'DB lookup failed', { email, error: err instanceof Error ? err.message : String(err) });
+      return ERR.INTERNAL('Lỗi hệ thống, vui lòng thử lại');
     }
 
-    if (userProfile) {
-      // Verify password against Supabase hash
-      let supabaseAuthOk = false;
-      if (userProfile.password_hash) {
-        supabaseAuthOk = await verifyPassword(password, userProfile.password_hash);
-      }
-
-      if (supabaseAuthOk) {
-        const role = isAdminRole(userProfile.role) ? 'admin'
-          : isSubAdminRole(userProfile.role) ? 'sub_admin'
-          : userProfile.role === 'instructor' ? 'instructor'
-          : userProfile.role || 'user';
-        const memberLevel = userProfile.member_level || 'Free';
-
-        const token = await signToken({ email: userProfile.email, role, name: userProfile.name, level: memberLevel });
-
-        return buildJsonResponse({
-          name: userProfile.name,
-          email: userProfile.email,
-          phone: userProfile.phone || '',
-          role,
-          memberLevel,
-        }, token);
-      }
-
-      // Supabase password failed or not set — check demo users before rejecting
+    if (!userProfile) {
+      logger.info('auth.login', 'Login failed: user not found', { email });
+      // Generic error message to prevent user enumeration
+      return ERR.INVALID_CREDENTIALS();
     }
 
-    // Fallback: Demo users (for development/testing, or Supabase user without password)
-    const demoUser = DEMO_USERS.find(
-      u => u.email.toLowerCase() === email
-    );
-    if (demoUser && demoUser.plainPassword === password) {
-      try {
-        const token = await signToken({ email: demoUser.email, role: demoUser.role, name: demoUser.name, level: demoUser.memberLevel });
-
-        return buildJsonResponse({
-          name: demoUser.name,
-          email: demoUser.email,
-          phone: demoUser.phone,
-          role: demoUser.role,
-          memberLevel: demoUser.memberLevel,
-        }, token);
-      } catch (err) {
-        console.error('[Login] Demo token creation failed:', err instanceof Error ? err.message : err);
-      }
+    // Verify password
+    if (!userProfile.password_hash) {
+      logger.warn('auth.login', 'User has no password hash', { email });
+      return ERR.INVALID_CREDENTIALS();
     }
 
-    return NextResponse.json(
-      { success: false, error: 'Email hoặc mật khẩu không đúng' },
-      { status: 401 }
-    );
+    const passwordValid = await verifyPassword(password, userProfile.password_hash);
+    if (!passwordValid) {
+      logger.info('auth.login', 'Login failed: invalid password', { email });
+      return ERR.INVALID_CREDENTIALS();
+    }
+
+    // Create JWT session
+    const role = normalizeRole(userProfile.role);
+    const memberLevel = userProfile.member_level || 'Free';
+
+    const token = await signToken({
+      email: userProfile.email,
+      role,
+      name: userProfile.name,
+      level: memberLevel,
+    });
+
+    // Set httpOnly cookie and return success (no user data in response)
+    const response = apiSuccess({ authenticated: true });
+
+    response.cookies.set(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: '/',
+    });
+
+    logger.info('auth.login', 'Login successful', { email, role });
+
+    return response;
   } catch (error) {
-    console.error('[Login] Error:', error instanceof Error ? error.message : error);
-    return NextResponse.json(
-      { success: false, error: 'Lỗi hệ thống. Vui lòng thử lại.' },
-      { status: 500 }
-    );
+    logger.error('auth.login', 'Unexpected error', { error: error instanceof Error ? error.message : String(error) });
+    return ERR.INTERNAL();
   }
 }

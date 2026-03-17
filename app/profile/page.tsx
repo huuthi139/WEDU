@@ -35,22 +35,25 @@ export default function Profile() {
     }
   }, [user, isLoading, router]);
 
-  // Load profile from user and localStorage
+  // Load profile from auth user (server-sourced)
   useEffect(() => {
     if (user) {
-      const savedProfile = typeof window !== 'undefined'
-        ? JSON.parse(localStorage.getItem('wedu-profile') || '{}')
+      // Extra fields (bio, location, occupation) stored in localStorage as draft/ephemeral data
+      const extras = typeof window !== 'undefined'
+        ? JSON.parse(localStorage.getItem('wedu-profile-extras') || '{}')
         : {};
       setProfileData({
-        name: savedProfile.name || user.name,
+        name: user.name,
         email: user.email,
-        phone: user.phone || savedProfile.phone || '',
-        bio: savedProfile.bio || 'Yêu thích học tập và phát triển bản thân thông qua các khóa học trực tuyến.',
-        location: savedProfile.location || '',
-        occupation: savedProfile.occupation || '',
+        phone: user.phone || '',
+        bio: extras.bio || 'Yêu thích học tập và phát triển bản thân thông qua các khóa học trực tuyến.',
+        location: extras.location || '',
+        occupation: extras.occupation || '',
       });
     }
   }, [user]);
+
+  const [saveLoading, setSaveLoading] = useState(false);
 
   if (isLoading || !user) {
     return (
@@ -66,19 +69,35 @@ export default function Profile() {
     );
   }
 
-  const handleSave = () => {
-    // Save extra profile data to localStorage
-    localStorage.setItem('wedu-profile', JSON.stringify({
-      name: profileData.name,
-      phone: profileData.phone,
-      bio: profileData.bio,
-      location: profileData.location,
-      occupation: profileData.occupation,
-    }));
-    // Update user context so name persists across the app
-    updateUser({ name: profileData.name, phone: profileData.phone });
-    showToast('Đã cập nhật hồ sơ thành công!', 'success');
-    setIsEditing(false);
+  const handleSave = async () => {
+    setSaveLoading(true);
+    try {
+      // Save core profile fields to server (source of truth)
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: profileData.name, phone: profileData.phone }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showToast(data.error?.message || 'Lưu hồ sơ thất bại', 'error');
+        return;
+      }
+      // Save extra fields (bio, location, occupation) to localStorage (ephemeral)
+      localStorage.setItem('wedu-profile-extras', JSON.stringify({
+        bio: profileData.bio,
+        location: profileData.location,
+        occupation: profileData.occupation,
+      }));
+      // Update client auth state with canonical data from server
+      updateUser({ name: data.data.profile.name, phone: data.data.profile.phone });
+      showToast('Đã cập nhật hồ sơ thành công!', 'success');
+      setIsEditing(false);
+    } catch {
+      showToast('Lỗi kết nối, thử lại sau', 'error');
+    } finally {
+      setSaveLoading(false);
+    }
   };
 
   const handlePasswordChange = async () => {
@@ -266,8 +285,9 @@ export default function Profile() {
                       variant="primary"
                       size="sm"
                       onClick={handleSave}
+                      disabled={saveLoading}
                     >
-                      Lưu thay đổi
+                      {saveLoading ? 'Đang lưu...' : 'Lưu thay đổi'}
                     </Button>
                   </div>
                 )}

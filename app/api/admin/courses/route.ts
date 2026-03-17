@@ -1,51 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAdminRole, hasAdminAccess } from '@/lib/utils/auth';
+import { requireAdmin, AuthError } from '@/lib/auth/guards';
 import { invalidateCoursesCache } from '@/lib/supabase/courses-cache';
-
-/** Verify admin or sub_admin access via JWT session cookie */
-async function verifyAdmin(request: NextRequest): Promise<boolean> {
-  try {
-    const token = request.cookies.get('wedu-token')?.value;
-    if (!token) return false;
-    const secret = process.env.JWT_SECRET;
-    if (!secret || secret.length < 32) return false;
-    const { jwtVerify } = await import('jose');
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret));
-    const role = (payload as { role?: string }).role || '';
-    return hasAdminAccess(role);
-  } catch {
-    return false;
-  }
-}
-
-function forbidden() {
-  return NextResponse.json({ success: false, error: 'Không có quyền truy cập' }, { status: 403 });
-}
+import { apiSuccess, ERR } from '@/lib/api/response';
+import { logger } from '@/lib/telemetry/logger';
 
 /** GET - List all courses (admin) */
-export async function GET(request: NextRequest) {
-  const isAdmin = await verifyAdmin(request);
-  if (!isAdmin) {
-    const clientRole = request.headers.get('x-user-role');
-    if (!clientRole || !hasAdminAccess(clientRole)) return forbidden();
+export async function GET() {
+  try {
+    await requireAdmin();
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN();
+    }
+    return ERR.UNAUTHORIZED();
   }
 
   try {
     const { getAllCoursesAdmin } = await import('@/lib/supabase/courses');
     const courses = await getAllCoursesAdmin();
-    return NextResponse.json({ success: true, courses });
+    return apiSuccess({ courses });
   } catch (err) {
-    console.error('[Admin Courses] GET error:', err instanceof Error ? err.message : err);
-    return NextResponse.json({ success: false, error: 'Không thể tải danh sách khóa học' }, { status: 500 });
+    logger.error('admin.courses.get', 'Failed to list courses', { error: err instanceof Error ? err.message : String(err) });
+    return ERR.INTERNAL('Không thể tải danh sách khóa học');
   }
 }
 
 /** POST - Create or update a course */
 export async function POST(request: NextRequest) {
-  const isAdmin = await verifyAdmin(request);
-  if (!isAdmin) {
-    const clientRole = request.headers.get('x-user-role');
-    if (!clientRole || !hasAdminAccess(clientRole)) return forbidden();
+  let adminUser;
+  try {
+    adminUser = await requireAdmin();
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN();
+    }
+    return ERR.UNAUTHORIZED();
   }
 
   try {
@@ -71,44 +60,49 @@ export async function POST(request: NextRequest) {
       is_active: body.isActive !== false,
     });
 
-    // Invalidate public courses cache so next fetch returns fresh data
     invalidateCoursesCache();
 
-    return NextResponse.json({ success: true, course });
+    logger.info('admin.courses.upsert', 'Course saved', { courseId: course?.id, actor: adminUser.email });
+
+    return apiSuccess({ course });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Lỗi hệ thống';
-    console.error('[Admin Courses] POST error:', message);
-    return NextResponse.json({ success: false, error: `Không thể lưu khóa học: ${message}` }, { status: 500 });
+    logger.error('admin.courses.upsert', 'Failed to save course', { error: err instanceof Error ? err.message : String(err) });
+    return ERR.INTERNAL('Không thể lưu khóa học');
   }
 }
 
 /** DELETE - Soft delete a course */
 export async function DELETE(request: NextRequest) {
-  const isAdmin = await verifyAdmin(request);
-  if (!isAdmin) {
-    const clientRole = request.headers.get('x-user-role');
-    if (!clientRole || !hasAdminAccess(clientRole)) return forbidden();
+  let adminUser;
+  try {
+    adminUser = await requireAdmin();
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN();
+    }
+    return ERR.UNAUTHORIZED();
   }
 
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     if (!id) {
-      return NextResponse.json({ success: false, error: 'Thiếu ID khóa học' }, { status: 400 });
+      return ERR.VALIDATION('Thiếu ID khóa học');
     }
 
     const { deleteCourse } = await import('@/lib/supabase/courses');
     const success = await deleteCourse(id);
     if (!success) {
-      return NextResponse.json({ success: false, error: 'Không thể xóa khóa học' }, { status: 500 });
+      return ERR.INTERNAL('Không thể xóa khóa học');
     }
 
-    // Invalidate public courses cache
     invalidateCoursesCache();
 
-    return NextResponse.json({ success: true });
+    logger.info('admin.courses.delete', 'Course deleted', { courseId: id, actor: adminUser.email });
+
+    return apiSuccess({ deleted: true });
   } catch (err) {
-    console.error('[Admin Courses] DELETE error:', err instanceof Error ? err.message : err);
-    return NextResponse.json({ success: false, error: 'Lỗi hệ thống' }, { status: 500 });
+    logger.error('admin.courses.delete', 'Failed to delete course', { error: err instanceof Error ? err.message : String(err) });
+    return ERR.INTERNAL();
   }
 }

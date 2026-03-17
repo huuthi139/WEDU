@@ -45,13 +45,9 @@ export const ASSIGNABLE_ROLES = [
   { value: 'instructor', label: 'Giảng viên' },
 ] as const;
 
-export const DEMO_USERS = [
-  {
-    email: 'admin@wedu.vn',
-    plainPassword: '123456',
-    role: 'admin',
-    name: 'Admin WEDU',
-    memberLevel: 'VIP',
-    phone: '',
-  },
-] as const;
+/**
+ * @deprecated DEMO_USERS removed from production auth flow.
+ * All authentication now goes through the database.
+ * Kept as empty array for backward compatibility with any references.
+ */
+export const DEMO_USERS: readonly never[] = [] as const;

@@ -5,6 +5,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { CoursesProvider } from '@/contexts/CoursesContext';
 import { EnrollmentProvider } from '@/contexts/EnrollmentContext';
 import { ToastProvider } from '@/providers/ToastProvider';
+import { QueryProvider } from '@/providers/QueryProvider';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export const metadata: Metadata = {
@@ -26,17 +27,19 @@ export default function RootLayout({
       </head>
       <body className="font-sans">
         <ErrorBoundary>
-          <ToastProvider>
-            <AuthProvider>
-              <CoursesProvider>
-                <EnrollmentProvider>
-                  <CartProvider>
-                    {children}
-                  </CartProvider>
-                </EnrollmentProvider>
-              </CoursesProvider>
-            </AuthProvider>
-          </ToastProvider>
+          <QueryProvider>
+            <ToastProvider>
+              <AuthProvider>
+                <CoursesProvider>
+                  <EnrollmentProvider>
+                    <CartProvider>
+                      {children}
+                    </CartProvider>
+                  </EnrollmentProvider>
+                </CoursesProvider>
+              </AuthProvider>
+            </ToastProvider>
+          </QueryProvider>
         </ErrorBoundary>
       </body>
     </html>
