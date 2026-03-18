@@ -1,4 +1,4 @@
-import type { MemberLevel } from '@/lib/mockData';
+import type { MemberLevel } from '@/lib/types';
 
 export interface Lesson {
   id: string;

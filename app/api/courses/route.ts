@@ -2,22 +2,23 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-import { fetchCoursesFromSheet } from '@/lib/googleSheets/courses';
+import { getAllCourses } from '@/lib/supabase/courses';
 import { FALLBACK_COURSES } from '@/lib/fallback-data';
 import { getCachedCourses, setCachedCourses } from '@/lib/supabase/courses-cache';
+import { courseRowToFrontend, type CourseRow } from '@/lib/types';
 
 /**
  * GET /api/courses
  *
  * Data flow (priority order):
  * 1. In-memory cache (30s TTL) — fastest, avoids external calls
- * 2. Google Sheets CSV export — PRIMARY source of truth
+ * 2. Supabase courses table — PRIMARY source of truth
  * 3. Fallback embedded data — offline / error resilience
  *
  * Architecture:
- *   Google Sheets (Courses tab)
- *       ↓ CSV export
- *   /api/courses (parse + transform)
+ *   Supabase (courses table)
+ *       ↓ query
+ *   /api/courses (transform to frontend shape)
  *       ↓ cache
  *   Frontend (CoursesContext)
  */
@@ -31,17 +32,20 @@ export async function GET() {
       return response;
     }
 
-    // 2. Fetch from Google Sheets (primary source of truth)
-    const sheetId = process.env.GOOGLE_SHEET_ID || process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID;
+    // 2. Fetch from Supabase (primary source of truth)
     let courses: any[] = [];
-
-    if (sheetId) {
-      courses = await fetchCoursesFromSheet(sheetId);
+    try {
+      const rows = await getAllCourses();
+      if (rows.length > 0) {
+        courses = rows.map(row => courseRowToFrontend(row as unknown as CourseRow));
+      }
+    } catch (err) {
+      console.warn('[Courses] Supabase fetch failed:', err instanceof Error ? err.message : String(err));
     }
 
-    // 3. Fallback to embedded data if Google Sheets returned nothing
+    // 3. Fallback to embedded data if Supabase returned nothing
     if (courses.length === 0) {
-      console.warn('[Courses] Google Sheets returned empty, using fallback data');
+      console.warn('[Courses] Supabase returned empty, using fallback data');
       courses = FALLBACK_COURSES;
     }
 

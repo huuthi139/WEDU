@@ -1,6 +1,6 @@
 'use client';
 
-import { Course } from '@/lib/mockData';
+import { Course } from '@/lib/types';
 import { formatPrice, formatDuration } from '@/lib/utils';
 import Image from 'next/image';
 import Link from 'next/link';

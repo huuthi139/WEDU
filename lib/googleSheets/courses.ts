@@ -10,7 +10,7 @@
  * Badge | Category | MemberLevel
  */
 
-import type { Course, MemberLevel } from '@/lib/mockData';
+import type { Course, MemberLevel } from '@/lib/types';
 
 const FETCH_TIMEOUT = 15000;
 

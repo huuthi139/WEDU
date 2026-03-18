@@ -2,7 +2,7 @@
  * Fallback data for when external APIs (Google Sheets, Google Apps Script, Firebase)
  * are unreachable due to network restrictions.
  */
-import type { Course } from './mockData';
+import type { Course } from './types';
 
 export const FALLBACK_COURSES: Course[] = [
   {

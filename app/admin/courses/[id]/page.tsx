@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useCourses } from '@/contexts/CoursesContext';
-import type { MemberLevel } from '@/lib/mockData';
+import type { MemberLevel } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';

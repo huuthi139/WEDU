@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useCourses } from '@/contexts/CoursesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEnrollment } from '@/contexts/EnrollmentContext';
-import type { MemberLevel } from '@/lib/mockData';
+import type { MemberLevel } from '@/lib/types';
 import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
 
 const defaultChapters: Chapter[] = [];

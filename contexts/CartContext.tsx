@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Course } from '@/lib/mockData';
+import { Course } from '@/lib/types';
 
 interface CartItem extends Course {
   quantity: number;

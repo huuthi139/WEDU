@@ -1,6 +1,6 @@
 'use client';
 
-import type { MemberLevel } from '@/lib/mockData';
+import type { MemberLevel } from '@/lib/types';
 import { formatPrice } from '@/lib/utils';
 
 interface AdminOrder {

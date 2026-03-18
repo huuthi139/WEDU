@@ -6,7 +6,7 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { Button } from '@/components/ui/Button';
 import { useCourses } from '@/contexts/CoursesContext';
-import type { Course } from '@/lib/mockData';
+import type { Course } from '@/lib/types';
 import { formatPrice } from '@/lib/utils';
 import { useToast } from '@/providers/ToastProvider';
 import { useCart } from '@/contexts/CartContext';
