@@ -26,6 +26,13 @@ export function StaffTab({ isMainAdmin }: StaffTabProps) {
   const [filter, setFilter] = useState<'all' | 'staff_only'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Add staff modal state
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addEmail, setAddEmail] = useState('');
+  const [addRole, setAddRole] = useState('sub_admin');
+  const [addLoading, setAddLoading] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
   const fetchStaff = useCallback(async () => {
     setLoading(true);
     try {
@@ -72,6 +79,38 @@ export function StaffTab({ isMainAdmin }: StaffTabProps) {
       setError('Lỗi kết nối');
     } finally {
       setUpdating(null);
+    }
+  };
+
+  const handleAddStaff = async () => {
+    if (!addEmail.trim()) {
+      setAddError('Vui lòng nhập email');
+      return;
+    }
+    setAddLoading(true);
+    setAddError(null);
+    try {
+      const res = await fetch('/api/admin/staff', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: addEmail.trim(), role: addRole }),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMsg(data.data?.message || 'Thêm nhân sự thành công');
+        setShowAddModal(false);
+        setAddEmail('');
+        setAddRole('sub_admin');
+        fetchStaff(); // Refresh list
+        setTimeout(() => setSuccessMsg(null), 3000);
+      } else {
+        setAddError(data.error?.message || data.error || 'Không thể thêm nhân sự');
+      }
+    } catch {
+      setAddError('Lỗi kết nối');
+    } finally {
+      setAddLoading(false);
     }
   };
 
@@ -166,8 +205,127 @@ export function StaffTab({ isMainAdmin }: StaffTabProps) {
           >
             Nhân sự ({staffCount + adminCount})
           </button>
+          {isMainAdmin && (
+            <button
+              onClick={() => { setShowAddModal(true); setAddError(null); }}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-teal text-white hover:bg-teal/80 transition-colors flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              Thêm nhân sự
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Add Staff Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#1a1a2e] border border-white/[0.1] rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-semibold text-white">Thêm nhân sự mới</h3>
+              <button
+                onClick={() => { setShowAddModal(false); setAddError(null); }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {addError && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 text-sm text-red-400 mb-4">
+                {addError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
+                <input
+                  type="email"
+                  placeholder="example@email.com"
+                  value={addEmail}
+                  onChange={e => setAddEmail(e.target.value)}
+                  className="w-full bg-white/[0.05] border border-white/[0.1] rounded-lg px-4 py-2.5 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-teal"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Phân quyền</label>
+                <div className="space-y-2">
+                  {ASSIGNABLE_ROLES.filter(r => r.value !== 'user').map(r => (
+                    <label
+                      key={r.value}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        addRole === r.value
+                          ? 'border-teal bg-teal/10'
+                          : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="addRole"
+                        value={r.value}
+                        checked={addRole === r.value}
+                        onChange={e => setAddRole(e.target.value)}
+                        className="sr-only"
+                      />
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                        addRole === r.value ? 'border-teal' : 'border-gray-500'
+                      }`}>
+                        {addRole === r.value && <div className="w-2 h-2 rounded-full bg-teal" />}
+                      </div>
+                      <div>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${
+                          r.value === 'sub_admin' ? 'bg-teal/10 text-teal border border-teal/20' :
+                          r.value === 'instructor' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' :
+                          'bg-white/5 text-gray-400 border border-white/10'
+                        }`}>
+                          {r.label}
+                        </span>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {r.value === 'sub_admin' && 'Quản lý khóa học, học viên, đơn hàng'}
+                          {r.value === 'instructor' && 'Quản lý nội dung khóa học được giao'}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => { setShowAddModal(false); setAddError(null); }}
+                className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-white/[0.05] text-gray-300 hover:bg-white/[0.1] border border-white/[0.06] transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleAddStaff}
+                disabled={addLoading || !addEmail.trim()}
+                className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-teal text-white hover:bg-teal/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {addLoading ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Đang thêm...
+                  </>
+                ) : (
+                  'Thêm nhân sự'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Staff Table */}
       {loading ? (

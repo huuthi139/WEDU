@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { requirePermission, requireAuth, AuthError } from '@/lib/auth/guards';
+import { requirePermission, AuthError } from '@/lib/auth/guards';
 import { apiSuccess, ERR } from '@/lib/api/response';
 import { logger } from '@/lib/telemetry/logger';
 
@@ -94,5 +94,77 @@ export async function POST(request: NextRequest) {
     }
     logger.error('admin.staff.update', 'Failed to update role', { error: err instanceof Error ? err.message : String(err) });
     return ERR.INTERNAL();
+  }
+}
+
+/** PUT - Add new staff member by email with role */
+export async function PUT(request: NextRequest) {
+  try {
+    await requirePermission('admin.staff.manage');
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN('Chỉ admin mới có quyền quản lý nhân sự');
+    }
+    return ERR.UNAUTHORIZED();
+  }
+
+  try {
+    const body = await request.json();
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const role = typeof body.role === 'string' ? body.role.trim() : '';
+
+    if (!email) {
+      return ERR.VALIDATION('Vui lòng nhập email');
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return ERR.VALIDATION('Email không hợp lệ');
+    }
+
+    const validRoles = ['user', 'sub_admin', 'instructor'];
+    if (!validRoles.includes(role)) {
+      return ERR.VALIDATION(`Quyền không hợp lệ. Chỉ chấp nhận: ${validRoles.join(', ')}`);
+    }
+
+    const { getUserByEmail, updateUserProfile, createUserProfile } = await import('@/lib/supabase/users');
+    const existingUser = await getUserByEmail(email);
+
+    if (existingUser) {
+      if (existingUser.role === 'admin') {
+        return ERR.FORBIDDEN('Không thể thay đổi quyền của admin chính');
+      }
+
+      // Update role of existing user
+      await updateUserProfile(email, { role: role as 'user' | 'sub_admin' | 'instructor' });
+
+      logger.info('admin.staff.add', 'Existing user role updated', { target: email, role });
+
+      return apiSuccess({
+        message: `Đã cập nhật quyền của ${existingUser.name || email} thành ${role === 'sub_admin' ? 'Admin phụ' : role === 'instructor' ? 'Giảng viên' : 'Học viên'}`,
+        isNew: false,
+      });
+    } else {
+      // Create new user with this email and role
+      const name = body.name || email.split('@')[0];
+      await createUserProfile({
+        email,
+        name,
+        passwordHash: '',
+        role,
+        memberLevel: 'Free',
+      });
+
+      logger.info('admin.staff.add', 'New staff member created', { target: email, role });
+
+      return apiSuccess({
+        message: `Đã thêm nhân sự mới ${name} (${email}) với quyền ${role === 'sub_admin' ? 'Admin phụ' : role === 'instructor' ? 'Giảng viên' : 'Học viên'}`,
+        isNew: true,
+      }, 201);
+    }
+  } catch (err) {
+    logger.error('admin.staff.add', 'Failed to add staff', { error: err instanceof Error ? err.message : String(err) });
+    return ERR.INTERNAL('Không thể thêm nhân sự');
   }
 }
