@@ -1,0 +1,4 @@
+email,full_name,phone,system_role,status,password
+hocvien1@gmail.com,Nguyễn Văn A,0912345678,student,active,12345678
+hocvien2@gmail.com,Trần Thị B,0987654321,student,active,
+giangvien1@gmail.com,Lê Văn C,0900000000,instructor,active,Temp@123

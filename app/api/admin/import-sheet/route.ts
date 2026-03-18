@@ -10,31 +10,36 @@ import {
   normalizeSystemRole,
   normalizeUserStatus,
   normalizeCourseStatus,
+  normalizeCourseVisibility,
   mergeAccessTier,
   parseDate,
   parseCSV,
   getCol,
+  detectDuplicateRows,
   emptyStats,
   type ImportStats,
   type ImportError,
 } from '@/lib/import/helpers';
+import { writeAuditLog, writeAuditLogBatch, logImportRun, type AuditEntry } from '@/lib/telemetry/audit';
+import { LOCKED_PASSWORD_SENTINEL } from '@/lib/auth/password';
 
 // =============================================
 // AUTH
 // =============================================
 
-async function verifyAdmin(request: NextRequest): Promise<boolean> {
+async function verifyAdmin(request: NextRequest): Promise<{ isAdmin: boolean; userId?: string }> {
   try {
     const token = request.cookies.get('wedu-token')?.value;
-    if (!token) return false;
+    if (!token) return { isAdmin: false };
     const secret = process.env.JWT_SECRET;
-    if (!secret || secret.length < 32) return false;
+    if (!secret || secret.length < 32) return { isAdmin: false };
     const { jwtVerify } = await import('jose');
     const { payload } = await jwtVerify(token, new TextEncoder().encode(secret));
     const role = (payload as { role?: string }).role || '';
-    return hasAdminAccess(role);
+    const userId = (payload as { userId?: string }).userId;
+    return { isAdmin: hasAdminAccess(role), userId };
   } catch {
-    return false;
+    return { isAdmin: false };
   }
 }
 
@@ -65,12 +70,27 @@ async function fetchSheetTab(sheetId: string, tabName: string): Promise<Record<s
 async function importCourses(
   sheetId: string,
   dryRun: boolean,
+  actorUserId?: string,
 ): Promise<ImportStats> {
   const supabase = getSupabaseAdmin();
   const stats = emptyStats();
+  const auditEntries: AuditEntry[] = [];
 
   const rows = await fetchSheetTab(sheetId, 'courses');
   stats.total = rows.length;
+
+  // Detect duplicate course_code rows
+  const duplicates = detectDuplicateRows(rows, (row) =>
+    getCol(row, 'course_code', 'courseCode', 'ID', 'id', 'code').trim().toLowerCase()
+  );
+  for (const [key, rowNums] of duplicates) {
+    stats.errors.push({
+      row: rowNums[0],
+      field: 'duplicate',
+      value: key,
+      message: `Duplicate course_code "${key}" tai cac dong: ${rowNums.join(', ')}. Chi giu dong cuoi.`,
+    });
+  }
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -81,6 +101,7 @@ async function importCourses(
     const title = getCol(row, 'title', 'Title', 'Tên khóa học').trim();
     const slug = getCol(row, 'slug', 'Slug').trim();
     const statusRaw = getCol(row, 'status', 'Status', 'Trạng thái');
+    const visibilityRaw = getCol(row, 'visibility', 'Visibility');
 
     // Validation
     if (!courseCode && !slug) {
@@ -102,22 +123,29 @@ async function importCourses(
     const lookupId = courseCode || slug;
     const { data: existing } = await supabase
       .from('courses')
-      .select('id')
+      .select('id, title, status, visibility')
       .eq('id', lookupId)
       .limit(1)
       .single();
 
+    const courseStatus = normalizeCourseStatus(statusRaw);
     const courseData: Record<string, unknown> = {
       title,
-      description: getCol(row, 'description', 'Description', 'Mô tả'),
-      thumbnail: getCol(row, 'thumbnail', 'Thumbnail'),
-      instructor: getCol(row, 'instructor', 'Instructor', 'Giảng viên') || 'WEDU',
-      category: getCol(row, 'category', 'Category', 'Danh mục'),
-      status: normalizeCourseStatus(statusRaw),
-      visibility: 'public',
-      is_active: normalizeCourseStatus(statusRaw) === 'published',
+      status: courseStatus,
+      visibility: normalizeCourseVisibility(visibilityRaw),
+      is_active: courseStatus === 'published',
       updated_at: new Date().toISOString(),
     };
+
+    // Only set optional fields if non-empty (don't overwrite good data with empty)
+    const desc = getCol(row, 'description', 'short_description', 'Description', 'Mô tả');
+    if (desc) courseData.description = desc;
+    const thumb = getCol(row, 'thumbnail', 'Thumbnail');
+    if (thumb) courseData.thumbnail = thumb;
+    const instructor = getCol(row, 'instructor', 'Instructor', 'Giảng viên');
+    if (instructor) courseData.instructor = instructor;
+    const category = getCol(row, 'category', 'Category', 'Danh mục');
+    if (category) courseData.category = category;
 
     // Optional numeric fields
     const priceRaw = getCol(row, 'price', 'Price', 'Giá');
@@ -134,6 +162,16 @@ async function importCourses(
         stats.errors.push({ row: rowNum, field: 'upsert', value: lookupId, message: error.message });
       } else {
         stats.updated++;
+        auditEntries.push({
+          actorUserId,
+          actionType: 'course_upsert',
+          targetTable: 'courses',
+          targetId: lookupId,
+          entityKey: lookupId,
+          oldValue: { title: existing.title, status: existing.status },
+          newValue: courseData as Record<string, unknown>,
+          status: 'success',
+        });
       }
     } else {
       courseData.id = lookupId;
@@ -143,8 +181,22 @@ async function importCourses(
         stats.errors.push({ row: rowNum, field: 'insert', value: lookupId, message: error.message });
       } else {
         stats.inserted++;
+        auditEntries.push({
+          actorUserId,
+          actionType: 'course_upsert',
+          targetTable: 'courses',
+          targetId: lookupId,
+          entityKey: lookupId,
+          newValue: courseData as Record<string, unknown>,
+          status: 'success',
+        });
       }
     }
+  }
+
+  // Write audit logs in batch (non-blocking)
+  if (auditEntries.length > 0) {
+    writeAuditLogBatch(auditEntries).catch(() => {});
   }
 
   return stats;
@@ -157,14 +209,29 @@ async function importCourses(
 async function importStudents(
   sheetId: string,
   dryRun: boolean,
+  actorUserId?: string,
 ): Promise<ImportStats> {
   const supabase = getSupabaseAdmin();
   const stats = emptyStats();
+  const auditEntries: AuditEntry[] = [];
 
   const rows = await fetchSheetTab(sheetId, 'students');
   // Fallback: try "Users" tab if "students" is empty
   const actualRows = rows.length > 0 ? rows : await fetchSheetTab(sheetId, 'Users');
   stats.total = actualRows.length;
+
+  // Detect duplicate emails
+  const duplicates = detectDuplicateRows(actualRows, (row) =>
+    normalizeEmail(getCol(row, 'email', 'Email', 'E-mail', 'EmailAddress'))
+  );
+  for (const [key, rowNums] of duplicates) {
+    stats.errors.push({
+      row: rowNums[0],
+      field: 'duplicate',
+      value: key,
+      message: `Duplicate email "${key}" tai cac dong: ${rowNums.join(', ')}. Chi giu dong cuoi.`,
+    });
+  }
 
   for (let i = 0; i < actualRows.length; i++) {
     const row = actualRows[i];
@@ -223,8 +290,10 @@ async function importStudents(
         updates.role = legacyRole;
       }
 
-      // If password provided and existing user has no password, set it
-      if (passwordRaw && !existing.password_hash) {
+      // SAFETY: Never overwrite an active password_hash with empty/locked sentinel
+      // Only set password if existing user has NO password (is locked)
+      const isLocked = !existing.password_hash || existing.password_hash === LOCKED_PASSWORD_SENTINEL;
+      if (passwordRaw && isLocked) {
         try {
           const { hashPassword } = await import('@/lib/auth/password');
           updates.password_hash = await hashPassword(passwordRaw);
@@ -238,12 +307,22 @@ async function importStudents(
           stats.errors.push({ row: rowNum, field: 'update', value: email, message: error.message });
         } else {
           stats.updated++;
+          auditEntries.push({
+            actorUserId,
+            actionType: 'user_upsert',
+            targetTable: 'users',
+            targetId: existing.id,
+            entityKey: email,
+            oldValue: { name: existing.name, system_role: existing.system_role, status: existing.status },
+            newValue: updates as Record<string, unknown>,
+            status: 'success',
+          });
         }
       } else {
         stats.skipped++;
       }
     } else {
-      // Create new profile (placeholder - no password = first login sets password)
+      // Create new profile
       const legacyRole = systemRole === 'admin' ? 'admin' : systemRole === 'instructor' ? 'instructor' : 'user';
 
       const insertData: Record<string, unknown> = {
@@ -264,12 +343,10 @@ async function importStudents(
           const { hashPassword } = await import('@/lib/auth/password');
           insertData.password_hash = await hashPassword(passwordRaw);
         } catch {
-          const { LOCKED_PASSWORD_SENTINEL } = await import('@/lib/auth/password');
           insertData.password_hash = LOCKED_PASSWORD_SENTINEL;
           stats.errors.push({ row: rowNum, field: 'warning', value: email, message: 'Hash password thất bại, user cần dùng "Quên mật khẩu" để kích hoạt' });
         }
       } else {
-        const { LOCKED_PASSWORD_SENTINEL } = await import('@/lib/auth/password');
         insertData.password_hash = LOCKED_PASSWORD_SENTINEL;
       }
 
@@ -281,8 +358,20 @@ async function importStudents(
         if (!passwordRaw) {
           stats.errors.push({ row: rowNum, field: 'info', value: email, message: 'Tạo user không có mật khẩu → cần dùng "Quên mật khẩu" để kích hoạt tài khoản' });
         }
+        auditEntries.push({
+          actorUserId,
+          actionType: 'user_upsert',
+          targetTable: 'users',
+          entityKey: email,
+          newValue: { email, name: insertData.name, system_role: systemRole, status: userStatus, hasPassword: !!passwordRaw },
+          status: 'success',
+        });
       }
     }
+  }
+
+  if (auditEntries.length > 0) {
+    writeAuditLogBatch(auditEntries).catch(() => {});
   }
 
   return stats;
@@ -296,9 +385,11 @@ async function importCourseAccess(
   sheetId: string,
   dryRun: boolean,
   upgradeOnly: boolean,
+  actorUserId?: string,
 ): Promise<ImportStats> {
   const supabase = getSupabaseAdmin();
   const stats = emptyStats();
+  const auditEntries: AuditEntry[] = [];
 
   const rows = await fetchSheetTab(sheetId, 'course_access');
   // Fallback: try "Enrollments" tab
@@ -310,8 +401,46 @@ async function importCourseAccess(
   // Pre-fetch course code -> id lookup
   const courseCache = new Map<string, string>();
 
-  // Collect unique duplicates: email+courseCode -> best row
-  const seenPairs = new Map<string, { tier: string; rowNum: number }>();
+  // Collect unique duplicates: email+courseCode -> best row (highest tier)
+  const seenPairs = new Map<string, { tier: string; rowNum: number; rowIdx: number }>();
+
+  // First pass: deduplicate by email+courseCode, keeping highest tier
+  for (let i = 0; i < actualRows.length; i++) {
+    const row = actualRows[i];
+    const rowNum = i + 2;
+
+    const email = normalizeEmail(
+      getCol(row, 'email', 'Email', 'user_email', 'userId', 'student_email')
+    );
+    const courseCode = getCol(row, 'course_code', 'courseCode', 'course_id', 'courseId', 'Mã khóa học').trim();
+    const tierRaw = getCol(row, 'access_tier', 'accessTier', 'tier', 'Tier', 'Level', 'level');
+
+    if (!email || !courseCode) continue;
+
+    const tier = normalizeAccessTier(tierRaw || 'premium') || 'premium';
+    const pairKey = `${email}::${courseCode}`;
+    const existing = seenPairs.get(pairKey);
+
+    if (existing) {
+      const merged = mergeAccessTier(
+        (existing.tier as 'free' | 'premium' | 'vip'),
+        tier as 'free' | 'premium' | 'vip',
+        true
+      );
+      seenPairs.set(pairKey, { tier: merged, rowNum, rowIdx: merged !== existing.tier ? i : existing.rowIdx });
+      stats.errors.push({
+        row: rowNum,
+        field: 'duplicate',
+        value: pairKey,
+        message: `Duplicate email+course_code, giữ tier cao nhất: ${merged}`,
+      });
+    } else {
+      seenPairs.set(pairKey, { tier, rowNum, rowIdx: i });
+    }
+  }
+
+  // Second pass: process unique pairs
+  const processedPairs = new Set<string>();
 
   for (let i = 0; i < actualRows.length; i++) {
     const row = actualRows[i];
@@ -347,29 +476,26 @@ async function importCourseAccess(
       continue;
     }
 
-    const tier = normalizeAccessTier(tierRaw || 'premium');
-    if (!tier) {
+    // Skip if this pair was already processed (duplicate rows - we use the best tier from first pass)
+    const pairKey = `${email}::${courseCode}`;
+    const bestPair = seenPairs.get(pairKey);
+    if (processedPairs.has(pairKey)) {
+      stats.skipped++;
+      continue;
+    }
+    processedPairs.add(pairKey);
+
+    // Use the best (highest) tier from duplicate resolution
+    const tier = bestPair ? (bestPair.tier as 'free' | 'premium' | 'vip') : (normalizeAccessTier(tierRaw || 'premium') || 'premium') as 'free' | 'premium' | 'vip';
+
+    if (!normalizeAccessTier(tier)) {
       stats.invalid++;
       stats.errors.push({ row: rowNum, field: 'access_tier', value: tierRaw, message: `access_tier không hợp lệ: "${tierRaw}". Chỉ chấp nhận: free, premium, vip` });
       continue;
     }
 
-    // Handle duplicates: keep highest tier
-    const pairKey = `${email}::${courseCode}`;
-    const existing = seenPairs.get(pairKey);
-    if (existing) {
-      const existingTier = normalizeAccessTier(existing.tier);
-      const merged = mergeAccessTier(existingTier || 'free', tier, true);
-      seenPairs.set(pairKey, { tier: merged, rowNum });
-      stats.skipped++;
-      stats.errors.push({ row: rowNum, field: 'duplicate', value: pairKey, message: `Duplicate email+course_code, giữ tier cao nhất: ${merged}` });
-      continue;
-    }
-
-    seenPairs.set(pairKey, { tier, rowNum });
-
     const accessStatus = normalizeAccessStatus(statusRaw);
-    const source = normalizeAccessSource(sourceRaw || 'manual');
+    const source = normalizeAccessSource(sourceRaw || 'import');
     const activatedAt = parseDate(activatedAtRaw) || new Date().toISOString();
     const expiresAt = parseDate(expiresAtRaw);
 
@@ -391,7 +517,6 @@ async function importCourseAccess(
         userCache.set(email, userId);
       } else {
         // Auto-create placeholder profile (locked – must activate via forgot-password)
-        const { LOCKED_PASSWORD_SENTINEL } = await import('@/lib/auth/password');
         const now = new Date().toISOString();
         const { data: newUser, error: createErr } = await supabase
           .from('users')
@@ -496,13 +621,24 @@ async function importCourseAccess(
           stats.errors.push({ row: rowNum, field: 'update', value: `${email}:${courseCode}`, message: error.message });
         } else {
           stats.updated++;
+          const actionType = mergedTier !== currentTier ? 'course_access_upgrade' : 'course_access_upsert';
+          auditEntries.push({
+            actorUserId,
+            actionType,
+            targetTable: 'course_access',
+            targetId: existingAccess.id,
+            entityKey: `${email}::${courseCode}`,
+            oldValue: { access_tier: currentTier, status: existingAccess.status },
+            newValue: updates as Record<string, unknown>,
+            status: 'success',
+          });
         }
       } else {
         stats.skipped++;
       }
     } else {
       // Insert new course_access
-      const { error } = await supabase.from('course_access').insert({
+      const insertData = {
         user_id: userId,
         course_id: courseId,
         access_tier: tier,
@@ -512,14 +648,28 @@ async function importCourseAccess(
         expires_at: expiresAt,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      });
+      };
+
+      const { error } = await supabase.from('course_access').insert(insertData);
 
       if (error) {
         stats.errors.push({ row: rowNum, field: 'insert', value: `${email}:${courseCode}`, message: error.message });
       } else {
         stats.inserted++;
+        auditEntries.push({
+          actorUserId,
+          actionType: 'course_access_upsert',
+          targetTable: 'course_access',
+          entityKey: `${email}::${courseCode}`,
+          newValue: insertData as unknown as Record<string, unknown>,
+          status: 'success',
+        });
       }
     }
+  }
+
+  if (auditEntries.length > 0) {
+    writeAuditLogBatch(auditEntries).catch(() => {});
   }
 
   return stats;
@@ -549,7 +699,7 @@ async function importCourseAccess(
  * }
  */
 export async function POST(request: NextRequest) {
-  const isAdmin = await verifyAdmin(request);
+  const { isAdmin, userId: actorUserId } = await verifyAdmin(request);
   if (!isAdmin) {
     return NextResponse.json({ success: false, error: 'Không có quyền truy cập' }, { status: 403 });
   }
@@ -576,17 +726,17 @@ export async function POST(request: NextRequest) {
   try {
     // Phase A: Import courses first (needed for course_access resolution)
     if (tables.includes('courses')) {
-      results.courses = await importCourses(configSheetId, dryRun);
+      results.courses = await importCourses(configSheetId, dryRun, actorUserId);
     }
 
     // Phase B: Import students (needed for course_access resolution)
     if (tables.includes('students')) {
-      results.students = await importStudents(configSheetId, dryRun);
+      results.students = await importStudents(configSheetId, dryRun, actorUserId);
     }
 
     // Phase C: Import course_access (depends on A and B)
     if (tables.includes('course_access')) {
-      results.course_access = await importCourseAccess(configSheetId, dryRun, upgradeOnly);
+      results.course_access = await importCourseAccess(configSheetId, dryRun, upgradeOnly, actorUserId);
     }
 
     // Build summary
@@ -599,6 +749,23 @@ export async function POST(request: NextRequest) {
     }
 
     const totalErrors = Object.values(results).reduce((sum, s) => sum + s.errors.length, 0);
+    const totalRows = Object.values(results).reduce((sum, s) => sum + s.total, 0);
+
+    // Log import run to audit (non-blocking)
+    logImportRun({
+      actorUserId,
+      dryRun,
+      tables,
+      results: Object.fromEntries(
+        Object.entries(results).map(([k, v]) => [k, {
+          total: v.total, valid: v.valid, inserted: v.inserted,
+          updated: v.updated, skipped: v.skipped, invalid: v.invalid,
+          errorCount: v.errors.length,
+        }])
+      ),
+      totalRows,
+      totalErrors,
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,
@@ -622,7 +789,7 @@ export async function POST(request: NextRequest) {
  * Preview: fetch headers from each sheet tab to verify structure
  */
 export async function GET(request: NextRequest) {
-  const isAdmin = await verifyAdmin(request);
+  const { isAdmin } = await verifyAdmin(request);
   if (!isAdmin) {
     return NextResponse.json({ success: false, error: 'Không có quyền truy cập' }, { status: 403 });
   }
@@ -674,7 +841,7 @@ export async function GET(request: NextRequest) {
     instructions: {
       tabs_required: ['students', 'courses', 'course_access'],
       students_columns: ['email (bắt buộc)', 'full_name', 'phone', 'system_role', 'status', 'password (tùy chọn - nếu trống, user cần dùng "Quên mật khẩu" để kích hoạt)'],
-      courses_columns: ['course_code (bắt buộc)', 'title (bắt buộc)', 'slug', 'status'],
+      courses_columns: ['course_code (bắt buộc)', 'title (bắt buộc)', 'slug', 'status', 'visibility', 'short_description'],
       course_access_columns: ['email (bắt buộc)', 'course_code (bắt buộc)', 'access_tier', 'status', 'activated_at', 'expires_at', 'source'],
     },
   });

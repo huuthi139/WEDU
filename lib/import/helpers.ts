@@ -92,8 +92,8 @@ export function normalizeCourseStatus(raw: string): 'draft' | 'published' | 'arc
 
 export function normalizeAccessSource(raw: string): string {
   const s = (raw || '').trim().toLowerCase();
-  const valid = ['manual', 'order', 'gift', 'admin', 'scholarship', 'system'];
-  return valid.includes(s) ? s : 'manual';
+  const valid = ['manual', 'order', 'gift', 'admin', 'scholarship', 'system', 'import'];
+  return valid.includes(s) ? s : 'import';
 }
 
 // =============================================
@@ -188,6 +188,49 @@ export function getCol(row: Record<string, string>, ...keys: string[]): string {
     if (val !== undefined && val !== '') return val;
   }
   return '';
+}
+
+// =============================================
+// COURSE VISIBILITY
+// =============================================
+
+export function normalizeCourseVisibility(raw: string): 'public' | 'private' {
+  const s = (raw || '').trim().toLowerCase();
+  if (s === 'private') return 'private';
+  return 'public';
+}
+
+// =============================================
+// DUPLICATE DETECTION
+// =============================================
+
+/**
+ * Detect duplicate rows in a dataset by a key function.
+ * Returns a map of key -> array of row numbers that share that key.
+ */
+export function detectDuplicateRows(
+  rows: Record<string, string>[],
+  keyFn: (row: Record<string, string>) => string,
+): Map<string, number[]> {
+  const seen = new Map<string, number[]>();
+  for (let i = 0; i < rows.length; i++) {
+    const key = keyFn(rows[i]);
+    if (!key) continue;
+    const existing = seen.get(key);
+    if (existing) {
+      existing.push(i + 2); // 1-indexed + header
+    } else {
+      seen.set(key, [i + 2]);
+    }
+  }
+  // Return only actual duplicates
+  const duplicates = new Map<string, number[]>();
+  for (const [key, rowNums] of seen) {
+    if (rowNums.length > 1) {
+      duplicates.set(key, rowNums);
+    }
+  }
+  return duplicates;
 }
 
 // =============================================
