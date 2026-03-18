@@ -67,6 +67,21 @@ export default function CourseAccessPage() {
   const [editExpires, setEditExpires] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Cleanup state
+  const [cleanupPreview, setCleanupPreview] = useState<{
+    total_records: number;
+    unique_users: number;
+    unique_courses: number;
+    records_per_user: number;
+  } | null>(null);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<{
+    before: number;
+    after: number;
+    deleted: number;
+  } | null>(null);
+  const [cleanupConfirmText, setCleanupConfirmText] = useState('');
+
   const fetchRecords = useCallback(async (page = 1) => {
     setLoading(true);
     setError(null);
@@ -131,6 +146,50 @@ export default function CourseAccessPage() {
       alert(err instanceof Error ? err.message : 'Lỗi kết nối');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCleanupPreview = async () => {
+    setCleanupLoading(true);
+    setCleanupResult(null);
+    try {
+      const res = await fetch('/api/admin/course-access/cleanup', { credentials: 'include' });
+      const data = await res.json();
+      if (data.success) {
+        setCleanupPreview(data.summary);
+      } else {
+        setError(data.error || 'Lỗi preview cleanup');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Lỗi kết nối');
+    } finally {
+      setCleanupLoading(false);
+    }
+  };
+
+  const handleCleanupExecute = async () => {
+    if (cleanupConfirmText !== 'XOA TAT CA') return;
+    setCleanupLoading(true);
+    try {
+      const res = await fetch('/api/admin/course-access/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ confirm: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCleanupResult({ before: data.before, after: data.after, deleted: data.deleted });
+        setCleanupPreview(null);
+        setCleanupConfirmText('');
+        fetchRecords(1);
+      } else {
+        setError(data.error || 'Lỗi cleanup');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Lỗi kết nối');
+    } finally {
+      setCleanupLoading(false);
     }
   };
 
@@ -201,6 +260,74 @@ export default function CourseAccessPage() {
             </button>
           </div>
         </form>
+
+        {/* Cleanup Section */}
+        <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-semibold text-red-400">Cleanup dữ liệu sai</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Xóa toàn bộ course_access invalid. Backup tự động lưu vào audit_logs.</p>
+            </div>
+            {!cleanupPreview && !cleanupResult && (
+              <button
+                onClick={handleCleanupPreview}
+                disabled={cleanupLoading}
+                className="px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg text-sm hover:bg-red-500/20 transition-colors disabled:opacity-50"
+              >
+                {cleanupLoading ? 'Đang kiểm tra...' : 'Preview Cleanup'}
+              </button>
+            )}
+          </div>
+
+          {cleanupPreview && (
+            <div className="space-y-3">
+              <div className="bg-black/30 rounded-lg p-3 text-sm">
+                <p className="text-red-300 font-semibold mb-2">Sẽ xóa:</p>
+                <ul className="space-y-1 text-gray-300 text-xs">
+                  <li>• <span className="text-white font-mono">{cleanupPreview.total_records}</span> course_access records</li>
+                  <li>• <span className="text-white font-mono">{cleanupPreview.unique_users}</span> users × <span className="text-white font-mono">{cleanupPreview.unique_courses}</span> courses = mỗi user có <span className="text-white font-mono">{cleanupPreview.records_per_user}</span> records</li>
+                  <li>• Lý do: dữ liệu auto-generated, không có mapping thật từ Google Sheet</li>
+                  <li className="text-green-400">• KHÔNG xóa users, courses, hoặc audit_logs</li>
+                  <li className="text-green-400">• Backup đầy đủ sẽ lưu vào audit_logs trước khi xóa</li>
+                </ul>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={cleanupConfirmText}
+                  onChange={e => setCleanupConfirmText(e.target.value)}
+                  placeholder='Gõ "XOA TAT CA" để xác nhận'
+                  className="flex-1 px-3 py-2 bg-white/5 border border-red-500/30 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-red-500"
+                />
+                <button
+                  onClick={handleCleanupExecute}
+                  disabled={cleanupConfirmText !== 'XOA TAT CA' || cleanupLoading}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  {cleanupLoading ? 'Đang xóa...' : 'Xóa toàn bộ'}
+                </button>
+                <button
+                  onClick={() => { setCleanupPreview(null); setCleanupConfirmText(''); }}
+                  className="px-3 py-2 bg-white/5 text-gray-400 rounded-lg text-sm hover:bg-white/10"
+                >
+                  Hủy
+                </button>
+              </div>
+            </div>
+          )}
+
+          {cleanupResult && (
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-sm">
+              <p className="text-green-400 font-semibold mb-1">Cleanup hoàn tất</p>
+              <ul className="space-y-0.5 text-xs text-gray-300">
+                <li>• Trước: <span className="text-white font-mono">{cleanupResult.before}</span> records</li>
+                <li>• Sau: <span className="text-white font-mono">{cleanupResult.after}</span> records</li>
+                <li>• Đã xóa: <span className="text-white font-mono">{cleanupResult.deleted}</span> records</li>
+                <li>• Backup: audit_logs (action_type: course_access_bulk_cleanup)</li>
+              </ul>
+            </div>
+          )}
+        </div>
 
         {/* Error */}
         {error && (

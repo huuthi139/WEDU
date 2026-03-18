@@ -103,6 +103,45 @@ curl -X POST /api/admin/import-sheet \
 
 ---
 
+## Cleanup dữ liệu sai
+
+Nếu course_access bị import sai (ví dụ: auto-generated không có mapping thật):
+
+### Qua UI Admin
+1. Mở `/admin/course-access`
+2. Click "Preview Cleanup"
+3. Kiểm tra số records sẽ xóa
+4. Gõ `XOA TAT CA` để xác nhận
+5. Backup tự động lưu vào audit_logs
+
+### Qua API
+```bash
+# Preview (xem trước, không xóa)
+curl GET /api/admin/course-access/cleanup
+
+# Xóa thật (cần confirm)
+curl -X POST /api/admin/course-access/cleanup \
+  -H "Content-Type: application/json" \
+  -d '{"confirm": true}'
+```
+
+**An toàn:**
+- Chỉ xóa course_access — KHÔNG xóa users, courses, hoặc audit_logs
+- Backup đầy đủ lưu vào audit_logs trước khi xóa
+- Sau khi xóa, phải import lại từ Google Sheet có đúng format
+
+---
+
+## QUAN TRỌNG: Không suy luận course_access
+
+**KHÔNG BAO GIỜ** suy luận rằng mọi học viên có quyền truy cập tất cả khóa học.
+
+Tab `course_access` trong Google Sheet **BẮT BUỘC** phải có cột `course_code` với mapping email + course_code thật.
+
+Nếu tab `course_access` không có cột `course_code` hoặc dữ liệu trống → **KHÔNG import**. Yêu cầu admin cung cấp mapping đúng.
+
+---
+
 ## Kích hoạt tài khoản imported
 
 Khi admin import học viên **không có password**:
