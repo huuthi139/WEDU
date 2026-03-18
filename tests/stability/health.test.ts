@@ -5,19 +5,25 @@ describe('Health Check', () => {
     expect('/api/health').toBe('/api/health');
   });
 
-  it('health response shape is correct', () => {
+  it('health response shape is correct (Phase 4.7 - no Google Sheets)', () => {
     const mockHealthResponse = {
       status: 'ok',
       app: 'WEDU',
       timestamp: new Date().toISOString(),
-      googleSheets: { status: 'ok', latencyMs: 100 },
-      appsScript: { status: 'ok', latencyMs: 200 },
-      totalLatencyMs: 300,
+      supabase: { status: 'ok', latencyMs: 50 },
+      envVars: {
+        NEXT_PUBLIC_SUPABASE_URL: true,
+        SUPABASE_SERVICE_ROLE_KEY: true,
+        JWT_SECRET: true,
+      },
+      totalLatencyMs: 100,
     };
     expect(mockHealthResponse.app).toBe('WEDU');
     expect(mockHealthResponse.status).toMatch(/^(ok|degraded|error)$/);
-    expect(mockHealthResponse.googleSheets).toHaveProperty('status');
+    expect(mockHealthResponse.supabase).toHaveProperty('status');
     expect(mockHealthResponse.totalLatencyMs).toBeGreaterThanOrEqual(0);
+    // Google Sheets should NOT be in health check anymore
+    expect(mockHealthResponse).not.toHaveProperty('googleSheets');
   });
 
   it('degraded status when a dependency fails', () => {

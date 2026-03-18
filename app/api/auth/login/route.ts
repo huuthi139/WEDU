@@ -1,5 +1,5 @@
-import { verifyPassword, hashPassword } from '@/lib/auth/password';
-import { getUserByEmail, updateUserProfile } from '@/lib/supabase/users';
+import { verifyPassword, isLockedPassword } from '@/lib/auth/password';
+import { getUserByEmail } from '@/lib/supabase/users';
 import { signToken } from '@/lib/auth/jwt';
 import { normalizeRole } from '@/lib/auth/permissions';
 import { apiSuccess, ERR } from '@/lib/api/response';
@@ -54,22 +54,19 @@ export async function POST(request: Request) {
       return ERR.INVALID_CREDENTIALS();
     }
 
-    // Verify password
-    if (!userProfile.password_hash) {
-      // No password set yet (legacy user migrated without password) - set provided password
-      logger.info('auth.login', 'Setting initial password for migrated user', { email });
-      try {
-        const newHash = await hashPassword(password);
-        await updateUserProfile(email, { password_hash: newHash });
-      } catch {
-        // DB might be flaky, continue anyway
-      }
-    } else {
-      const passwordValid = await verifyPassword(password, userProfile.password_hash);
-      if (!passwordValid) {
-        logger.info('auth.login', 'Login failed: invalid password', { email });
-        return ERR.INVALID_CREDENTIALS();
-      }
+    // Verify password – NEVER allow login for accounts without a real password.
+    // Imported/migrated users must activate via "Quên mật khẩu" (forgot-password) flow first.
+    if (isLockedPassword(userProfile.password_hash)) {
+      logger.info('auth.login', 'Login blocked: account not yet activated (imported user)', { email });
+      return ERR.VALIDATION(
+        'Tài khoản chưa được kích hoạt. Vui lòng sử dụng chức năng "Quên mật khẩu" để đặt mật khẩu lần đầu.',
+      );
+    }
+
+    const passwordValid = await verifyPassword(password, userProfile.password_hash);
+    if (!passwordValid) {
+      logger.info('auth.login', 'Login failed: invalid password', { email });
+      return ERR.INVALID_CREDENTIALS();
     }
 
     const role = normalizeRole(userProfile.role);

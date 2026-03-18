@@ -6,16 +6,16 @@ import { getAllCourses } from '@/lib/supabase/courses';
 import { FALLBACK_COURSES } from '@/lib/fallback-data';
 import { getCachedCourses, setCachedCourses } from '@/lib/supabase/courses-cache';
 import { courseRowToFrontend, type CourseRow } from '@/lib/types';
-import { fetchCoursesFromSheet } from '@/lib/googleSheets/courses';
 
 /**
  * GET /api/courses
  *
  * Data flow (priority order):
  * 1. In-memory cache (30s TTL) — fastest, avoids external calls
- * 2. Supabase courses table — PRIMARY source of truth
- * 3. Google Sheets CSV — secondary live source
- * 4. Fallback embedded data — offline / error resilience
+ * 2. Supabase courses table — ONLY source of truth
+ * 3. Fallback embedded data — offline / error resilience
+ *
+ * Phase 4.7: Google Sheets removed from runtime. Supabase is sole source of truth.
  */
 export async function GET() {
   try {
@@ -27,7 +27,7 @@ export async function GET() {
       return response;
     }
 
-    // 2. Fetch from Supabase (primary source of truth)
+    // 2. Fetch from Supabase (only source of truth)
     let courses: any[] = [];
     try {
       const rows = await getAllCourses();
@@ -38,25 +38,9 @@ export async function GET() {
       console.warn('[Courses] Supabase fetch failed:', err instanceof Error ? err.message : String(err));
     }
 
-    // 3. Try Google Sheets if Supabase returned nothing
+    // 3. Fallback to embedded data
     if (courses.length === 0) {
-      const sheetId = process.env.GOOGLE_SHEET_ID || process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID;
-      if (sheetId) {
-        try {
-          const sheetCourses = await fetchCoursesFromSheet(sheetId);
-          if (sheetCourses.length > 0) {
-            courses = sheetCourses;
-            console.log(`[Courses] Using ${sheetCourses.length} courses from Google Sheets`);
-          }
-        } catch (err) {
-          console.warn('[Courses] Google Sheets fetch failed:', err instanceof Error ? err.message : String(err));
-        }
-      }
-    }
-
-    // 4. Fallback to embedded data
-    if (courses.length === 0) {
-      console.warn('[Courses] All sources empty, using fallback data');
+      console.warn('[Courses] Supabase empty, using fallback data');
       courses = FALLBACK_COURSES;
     }
 

@@ -208,13 +208,16 @@ export async function syncSheetUsersToSupabase(sheetUsers: Array<{
         }
       } else {
         // Insert new user from Sheet
+        // Use locked sentinel when no password provided – account must be
+        // activated via "Quên mật khẩu" (forgot-password) flow.
+        const { LOCKED_PASSWORD_SENTINEL } = await import('@/lib/auth/password');
         const { error } = await supabase
           .from('users')
           .insert({
             email,
             name: u.name || '',
             phone: u.phone || '',
-            password_hash: u.passwordHash || '',
+            password_hash: u.passwordHash || LOCKED_PASSWORD_SENTINEL,
             role: validRole,
             system_role: validSystemRole,
             member_level: validLevel,

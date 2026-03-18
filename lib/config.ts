@@ -2,21 +2,26 @@
  * Centralized configuration - All secrets from environment variables.
  * NEVER hardcode secrets in source code.
  *
- * Primary data source for courses: Google Sheets
- * Supabase: used for users, orders, enrollments, progress, reviews
- * Google Apps Script: legacy chapter data migration
+ * Phase 4.7: Supabase is the ONLY runtime source of truth.
+ * Google Sheets is only used for admin import/migration (not runtime).
+ * Google Apps Script: deprecated, kept for legacy migration only.
  */
 
-// Google Sheet ID - PRIMARY source for course data
+// Google Sheet ID - used ONLY by admin import tool, NOT runtime
 export function getSheetId(): string {
   const id = process.env.GOOGLE_SHEET_ID || process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID;
   if (!id) {
-    throw new Error('[Config] GOOGLE_SHEET_ID not set - required for course data');
+    throw new Error('[Config] GOOGLE_SHEET_ID not set - required for import tool');
   }
   return id;
 }
 
-// Google Apps Script URL - optional (only for backup sync and legacy migration)
+// Safe version that returns null instead of throwing
+export function getSheetIdSafe(): string | null {
+  return process.env.GOOGLE_SHEET_ID || process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID || null;
+}
+
+// Google Apps Script URL - deprecated, kept for legacy migration only
 export function getScriptUrl(): string {
   const url = process.env.GOOGLE_SCRIPT_URL;
   if (!url) {
@@ -30,7 +35,7 @@ export function getScriptUrlSafe(): string | null {
   return process.env.GOOGLE_SCRIPT_URL || null;
 }
 
-// Google Sheets CSV export URL helper
+// Google Sheets CSV export URL helper (used only by import tool)
 export function getSheetCsvUrl(sheetName: string): string {
   return `https://docs.google.com/spreadsheets/d/${getSheetId()}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
 }
@@ -38,17 +43,12 @@ export function getSheetCsvUrl(sheetName: string): string {
 // Validate required env vars on startup
 export function validateEnv(): void {
   const required = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
-  const optional = ['GOOGLE_SCRIPT_URL'];
-  // GOOGLE_SHEET_ID is now important for course data (primary source)
-  if (!process.env.GOOGLE_SHEET_ID && !process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID) {
-    console.warn('[Config] GOOGLE_SHEET_ID not set — courses will use fallback data');
-  }
   const missing = required.filter(key => !process.env[key]);
   if (missing.length > 0) {
     console.error(`[Config] Missing required environment variables: ${missing.join(', ')}`);
   }
-  const missingOptional = optional.filter(key => !process.env[key]);
-  if (missingOptional.length > 0) {
-    console.warn(`[Config] Optional env vars not set (Google Sheet sync disabled): ${missingOptional.join(', ')}`);
+  // Google Sheet ID is optional - only needed for admin import tool
+  if (!process.env.GOOGLE_SHEET_ID && !process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID) {
+    console.info('[Config] GOOGLE_SHEET_ID not set — admin import tool will require manual sheetId');
   }
 }

@@ -39,7 +39,7 @@ interface Student {
   lastActive: string;
 }
 
-// Google Sheets user row from API
+// User row from Supabase API
 interface SheetUser {
   Email: string;
   Role: string;
@@ -170,38 +170,8 @@ export default function AdminDashboard() {
     }
   }, []);
 
-  // ------- Sync from Google Sheets -------
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
-  const [syncMessage, setSyncMessage] = useState('');
+  // ------- Data counts (Supabase) -------
   const [syncCounts, setSyncCounts] = useState<Record<string, number> | null>(null);
-
-  const handleSyncFromSheets = useCallback(async () => {
-    setSyncStatus('syncing');
-    setSyncMessage('Đang đồng bộ dữ liệu từ Google Sheets...');
-    try {
-      const res = await fetch('/api/admin/sync-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tables: ['courses', 'orders', 'enrollments', 'reviews', 'chapters'] }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSyncStatus('done');
-        setSyncMessage(data.message);
-        // Refresh orders after sync
-        fetchOrders();
-        // Fetch updated counts
-        fetchSyncCounts();
-      } else {
-        setSyncStatus('error');
-        setSyncMessage(data.error || 'Sync thất bại');
-      }
-    } catch (err) {
-      setSyncStatus('error');
-      setSyncMessage('Lỗi kết nối');
-    }
-    setTimeout(() => setSyncStatus('idle'), 5000);
-  }, [fetchOrders]);
 
   const fetchSyncCounts = useCallback(async () => {
     try {
@@ -285,34 +255,7 @@ export default function AdminDashboard() {
     fetchStudents();
   }, [fetchStudents]);
 
-  // Sync students from Google Sheets to Supabase
-  const [syncingSheetsStudents, setSyncingSheetsStudents] = useState(false);
-  const [syncSheetsStudentsMessage, setSyncSheetsStudentsMessage] = useState<string | null>(null);
-
-  const handleSyncStudentsFromSheets = useCallback(async () => {
-    setSyncingSheetsStudents(true);
-    setSyncSheetsStudentsMessage('Dang dong bo hoc vien tu Google Sheets...');
-    try {
-      const res = await fetch('/api/admin/sync-users', {
-        method: 'POST',
-        credentials: 'include',
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSyncSheetsStudentsMessage(
-          `Import hoan tat: ${data.stats?.added || 0} them moi, ${data.stats?.updated || 0} cap nhat, ${data.stats?.skipped || 0} bo qua (tong: ${data.stats?.total || 0})`
-        );
-        // Refresh student list
-        fetchStudents();
-      } else {
-        setSyncSheetsStudentsMessage(`Loi: ${data.error || 'Import that bai'}`);
-      }
-    } catch (err) {
-      setSyncSheetsStudentsMessage(`Loi ket noi: ${err instanceof Error ? err.message : 'unknown'}`);
-    } finally {
-      setSyncingSheetsStudents(false);
-    }
-  }, [fetchStudents]);
+  // Note: Google Sheets sync removed in Phase 4.7. Use /admin/import for batch import.
 
   // Save a single course to Supabase via API
   const [courseError, setCourseError] = useState<string | null>(null);
@@ -388,7 +331,7 @@ export default function AdminDashboard() {
     }
   }, [courses, saveCourseToAPI]);
 
-  // Load courses from context (which reads from API → Supabase/Google Sheets)
+  // Load courses from context (which reads from API → Supabase)
   useEffect(() => {
     if (sheetCourses.length === 0) return;
     setCourses(sheetCourses);
@@ -646,45 +589,17 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {/* Sync from Google Sheets button */}
-            <button
-              onClick={handleSyncFromSheets}
-              disabled={syncStatus === 'syncing'}
-              className={`inline-flex items-center gap-2 h-10 px-4 rounded-lg font-bold text-sm transition-all duration-200 ${
-                syncStatus === 'done'
-                  ? 'bg-green-500/15 text-green-400 border border-green-500/30'
-                  : syncStatus === 'error'
-                  ? 'bg-red-500/15 text-red-400 border border-red-500/30'
-                  : syncStatus === 'syncing'
-                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-wait'
-                  : 'bg-white/5 text-gray-300 border border-white/10 hover:border-amber-500/30 hover:text-amber-400'
-              }`}
-              title={syncMessage || (syncCounts ? `Supabase: ${syncCounts.courses} courses, ${syncCounts.orders} orders, ${syncCounts.enrollments} enrollments, ${syncCounts.reviews} reviews, ${syncCounts.chapters} chapters` : 'Sync dữ liệu từ Google Sheets lên Supabase')}
+            {/* Import Tool link */}
+            <Link
+              href="/admin/import"
+              className="inline-flex items-center gap-2 h-10 px-4 rounded-lg font-bold text-sm transition-all duration-200 bg-white/5 text-gray-300 border border-white/10 hover:border-amber-500/30 hover:text-amber-400"
+              title={syncCounts ? `Supabase: ${syncCounts.courses} courses, ${syncCounts.orders} orders, ${syncCounts.enrollments} enrollments` : 'Import dữ liệu'}
             >
-              {syncStatus === 'syncing' ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Đang sync...
-                </>
-              ) : syncStatus === 'done' ? (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Đã sync
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Sync GSheet
-                </>
-              )}
-            </button>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              Import
+            </Link>
             <button
               onClick={handleManualSave}
               disabled={saveStatus === 'saving'}
@@ -817,9 +732,6 @@ export default function AdminDashboard() {
             setShowAddCourseModal={setShowAddCourseModal}
             handleRemoveCourse={handleRemoveCourse}
             onRefresh={fetchStudents}
-            onSyncFromSheets={handleSyncStudentsFromSheets}
-            syncingSheets={syncingSheetsStudents}
-            syncSheetsMessage={syncSheetsStudentsMessage}
             LevelBadge={LevelBadge}
           />
         )}
