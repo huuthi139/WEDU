@@ -171,6 +171,16 @@ export async function POST(
   { params }: { params: { courseId: string } }
 ) {
   try {
+    // Require admin/instructor role to modify course content
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+    const role = normalizeRole(session.role);
+    if (!isAdminLevelRole(role) && role !== 'instructor') {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
+
     const { courseId } = params;
     if (!courseId) return NextResponse.json({ success: false, error: 'Missing courseId' }, { status: 400 });
 
