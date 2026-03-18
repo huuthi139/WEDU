@@ -1,6 +1,6 @@
 import { getAuthUser } from '@/lib/auth/guards';
 import { apiSuccess, ERR } from '@/lib/api/response';
-import { getUserByEmail } from '@/lib/supabase/users';
+import { getUserByEmail, createUserProfile } from '@/lib/supabase/users';
 import { normalizeRole, getPermissionsForRole } from '@/lib/auth/permissions';
 import { logger } from '@/lib/telemetry/logger';
 
@@ -21,20 +21,51 @@ export async function GET() {
     const dbUser = await getUserByEmail(sessionUser.email);
 
     if (!dbUser) {
-      logger.warn('auth.me', 'User in session but not found in DB, using session data', { email: sessionUser.email });
-      // Fallback to session data (supports demo mode / DB out of sync)
-      return apiSuccess({
-        user: {
-          id: '',
+      // Auto-create profile if user has a valid session but no DB record
+      // This ensures signup → profile flow is always safe
+      logger.warn('auth.me', 'User in session but not in DB, auto-creating profile', { email: sessionUser.email });
+      try {
+        const created = await createUserProfile({
           email: sessionUser.email,
-          name: sessionUser.name,
-          role: sessionUser.role,
-          memberLevel: sessionUser.memberLevel,
+          name: sessionUser.name || '',
           phone: '',
-          avatarUrl: null,
-        },
-        permissions: sessionUser.permissions,
-      });
+          passwordHash: '', // Will be set on next password change
+          role: sessionUser.role || 'user',
+          memberLevel: sessionUser.memberLevel || 'Free',
+        });
+        const role = normalizeRole(created.role);
+        const permissions = getPermissionsForRole(role);
+        return apiSuccess({
+          user: {
+            id: created.id || '',
+            email: created.email,
+            name: created.name,
+            role,
+            memberLevel: created.member_level || 'Free',
+            phone: created.phone || '',
+            avatarUrl: null,
+          },
+          permissions,
+        });
+      } catch (createErr) {
+        logger.error('auth.me', 'Auto-create profile failed', {
+          email: sessionUser.email,
+          error: createErr instanceof Error ? createErr.message : String(createErr),
+        });
+        // Fallback to session data if auto-create fails
+        return apiSuccess({
+          user: {
+            id: '',
+            email: sessionUser.email,
+            name: sessionUser.name,
+            role: sessionUser.role,
+            memberLevel: sessionUser.memberLevel,
+            phone: '',
+            avatarUrl: null,
+          },
+          permissions: sessionUser.permissions,
+        });
+      }
     }
 
     const role = normalizeRole(dbUser.role);

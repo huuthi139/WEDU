@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
 import { getEnrollmentsByUser, enrollUser } from '@/lib/supabase/enrollments';
-import { syncEnrollmentToSheet } from '@/lib/sync/sheetSync';
 
 export async function GET() {
   const session = await getSession();
@@ -32,9 +31,6 @@ export async function POST(req: NextRequest) {
   if (!enrollment) {
     return NextResponse.json({ success: false, error: 'Failed to enroll' }, { status: 500 });
   }
-
-  // Background sync to Google Sheet
-  syncEnrollmentToSheet(session.email, courseId);
 
   return NextResponse.json({ success: true });
 }

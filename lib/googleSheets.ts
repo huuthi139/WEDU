@@ -1,11 +1,8 @@
 /**
- * Google Sheets utilities
- * NOTE: Google Sheet is now used only for backup sync (Supabase → Sheet).
- * All primary data reads come from Supabase.
- *
- * These functions are kept for:
- * - Legacy order submission (submitOrder from client)
- * - Any remaining direct Sheet interactions
+ * Order submission utilities.
+ * This module submits orders to the Supabase-backed /api/orders endpoint.
+ * File is named googleSheets.ts for backward compatibility but does NOT
+ * interact with Google Sheets — all data goes to Supabase.
  */
 
 interface OrderPayload {

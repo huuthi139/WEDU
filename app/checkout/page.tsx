@@ -93,7 +93,7 @@ function CheckoutContent() {
     };
 
     try {
-      // Send order to Google Sheets via API route
+      // Submit order to Supabase via API route
       const { submitOrder } = await import('@/lib/googleSheets');
       await submitOrder(orderData);
 

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
 import { getReviewsByCourse, saveReview } from '@/lib/supabase/reviews';
-import { syncReviewToSheet } from '@/lib/sync/sheetSync';
 
 export async function GET(req: NextRequest) {
   const courseId = req.nextUrl.searchParams.get('courseId');
@@ -40,15 +39,6 @@ export async function POST(req: NextRequest) {
   if (!review) {
     return NextResponse.json({ success: false, error: 'Failed to save review' }, { status: 500 });
   }
-
-  // Background sync to Google Sheet
-  syncReviewToSheet({
-    userEmail: session.email,
-    userName: session.name,
-    courseId,
-    rating: Number(rating) || 5,
-    content: content || '',
-  });
 
   return NextResponse.json({ success: true });
 }

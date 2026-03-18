@@ -16,6 +16,7 @@ import Image from 'next/image';
 
 import type { MemberLevel } from '@/lib/types';
 import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
+import { canAccessLesson as checkLessonAccess } from '@/lib/access-control';
 
 const defaultChapters: Chapter[] = [];
 
@@ -425,6 +426,10 @@ export default function CourseDetail() {
                       <div className="divide-y divide-white/5">
                         {section.lessons.map((lesson, lessonIndex) => {
                           const isLocked = LEVEL_ORDER[lesson.requiredLevel] > LEVEL_ORDER[userLevel];
+                          // On course detail page, only preview lessons can be played without enrollment
+                          const isPreviewLesson = lesson.requiredLevel === 'Free';
+                          const enrolled = isEnrolled(course.id);
+                          const canPreview = isPreviewLesson || enrolled || user?.role === 'admin';
                           return (
                             <div
                               key={lessonIndex}
@@ -437,6 +442,15 @@ export default function CourseDetail() {
                                   <svg className="w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                                   </svg>
+                                ) : !canPreview ? (
+                                  <div
+                                    className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 bg-white/5 text-gray-600 cursor-not-allowed"
+                                    title="Đăng ký khóa học để xem"
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                    </svg>
+                                  </div>
                                 ) : (
                                   <button
                                     onClick={() => setPreviewLesson({ name: lesson.title, sectionTitle: section.title, directPlayUrl: lesson.directPlayUrl })}

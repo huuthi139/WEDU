@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useEnrollment } from '@/contexts/EnrollmentContext';
 import type { MemberLevel } from '@/lib/types';
 import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
+import { canAccessLesson } from '@/lib/access-control';
 
 const defaultChapters: Chapter[] = [];
 
@@ -77,12 +78,19 @@ export default function LearnPage() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Auto-enroll when visiting learn page
+  // Redirect to login if not authenticated
   useEffect(() => {
-    if (courseId && !isEnrolled(courseId)) {
+    if (!isLoading && !user) {
+      router.push(`/login?redirect=/learn/${courseId}`);
+    }
+  }, [user, isLoading, courseId, router]);
+
+  // Auto-enroll when authenticated user visits learn page
+  useEffect(() => {
+    if (user && courseId && !isEnrolled(courseId)) {
       enrollCourse(courseId);
     }
-  }, [courseId, isEnrolled, enrollCourse]);
+  }, [user, courseId, isEnrolled, enrollCourse]);
 
   // Load comments when lesson changes
   useEffect(() => {
@@ -178,6 +186,9 @@ export default function LearnPage() {
     );
   }
 
+  // Don't render if not authenticated (redirect is happening)
+  if (!user && !isLoading) return null;
+
   if (!course) {
     return (
       <div className="min-h-screen bg-dark flex items-center justify-center">
@@ -206,6 +217,25 @@ export default function LearnPage() {
   }
 
   const totalLessons = chapters.reduce((sum, ch) => sum + ch.lessons.length, 0);
+
+  // Build a ProfilePublic-like object for access control
+  const userProfile = user ? {
+    id: '',
+    email: user.email,
+    name: user.name,
+    phone: '',
+    role: user.role as any,
+    memberLevel: userLevel,
+    avatarUrl: null,
+  } : null;
+
+  const userEnrollment = isEnrolled(courseId) ? {
+    courseId,
+    enrolledAt: '',
+    progress: 0,
+    completedLessons: [] as string[],
+    lastAccessedAt: '',
+  } : null;
 
   const selectLesson = (lesson: Lesson, chapter: Chapter) => {
     const isLocked = LEVEL_ORDER[lesson.requiredLevel] > LEVEL_ORDER[userLevel];

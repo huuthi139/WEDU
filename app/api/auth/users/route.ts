@@ -26,15 +26,10 @@ async function handleFetchUsers() {
 
     return apiSuccess({ users, source: 'supabase' });
   } catch (err) {
-    // Supabase failed - return error with fallback URLs so client can try directly
     return NextResponse.json({
       success: false,
       error: err instanceof Error ? err.message : 'Database unavailable',
       users: [],
-      fallback: {
-        gasUrl: process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL || '',
-        sheetId: process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID || '',
-      },
     });
   }
 }
