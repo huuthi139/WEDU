@@ -323,13 +323,16 @@
         if (data.success) {
           // Store user data
           try {
-            localStorage.setItem('wedu-user', JSON.stringify(data.user));
+            localStorage.setItem('wedu-user', JSON.stringify(data.user || data.data));
           } catch(e) { /* ignore */ }
 
           // Also set display cookie for server-side reads
           try {
-            var encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data.user))));
-            document.cookie = 'wedu-user=' + encoded + ';path=/;max-age=' + (60*60*24*7) + ';samesite=strict';
+            var userData = data.user || data.data;
+            if (userData) {
+              var encoded = btoa(unescape(encodeURIComponent(JSON.stringify(userData))));
+              document.cookie = 'wedu-user=' + encoded + ';path=/;max-age=' + (60*60*24*7) + ';samesite=strict';
+            }
           } catch(e) { /* ignore */ }
 
           successBox.textContent = 'Đăng nhập thành công! Đang chuyển hướng...';
@@ -339,7 +342,9 @@
             window.location.href = '/dashboard';
           }, 500);
         } else {
-          errorBox.textContent = data.error || 'Email hoặc mật khẩu không đúng';
+          // data.error can be string or object {code, message}
+          var errMsg = (data.error && data.error.message) ? data.error.message : (typeof data.error === 'string' ? data.error : 'Email hoặc mật khẩu không đúng');
+          errorBox.textContent = errMsg;
           errorBox.style.display = 'block';
           submitBtn.disabled = false;
           submitBtn.textContent = 'Đăng nhập';

@@ -39,7 +39,14 @@ export async function POST(request: Request) {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error('auth.login', 'DB lookup failed', { email, error: errMsg });
-      return ERR.INTERNAL('Không thể kết nối cơ sở dữ liệu. Vui lòng thử lại sau.');
+      // Provide specific error hint based on the failure reason
+      if (errMsg.includes('Thiếu biến môi trường') || errMsg.includes('Missing')) {
+        return ERR.INTERNAL('Cấu hình server thiếu biến môi trường Supabase. Vui lòng kiểm tra Vercel Environment Variables.');
+      }
+      if (errMsg.includes('fetch failed') || errMsg.includes('TIMEOUT') || errMsg.includes('ECONNREFUSED')) {
+        return ERR.INTERNAL('Không thể kết nối Supabase. Kiểm tra NEXT_PUBLIC_SUPABASE_URL và kết nối mạng.');
+      }
+      return ERR.INTERNAL('Lỗi cơ sở dữ liệu: ' + errMsg.slice(0, 100));
     }
 
     if (!userProfile) {
