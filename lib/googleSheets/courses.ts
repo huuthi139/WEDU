@@ -15,6 +15,41 @@ import type { Course, MemberLevel } from '@/lib/types';
 const FETCH_TIMEOUT = 15000;
 
 /**
+ * Parse Vietnamese-formatted number (e.g., "1.868.000" or "4,8") to a JS number.
+ * Handles: dots as thousands separators, comma as decimal separator.
+ */
+function parseVietnameseNumber(str: string): number {
+  if (!str) return 0;
+  // Remove all non-numeric chars except dots and commas
+  let cleaned = str.replace(/[^\d.,]/g, '');
+  if (!cleaned) return 0;
+
+  // If has both dots and commas, dots are thousands separators, comma is decimal
+  // If only dots: check if last dot could be decimal (e.g., "4.8" vs "1.868.000")
+  // If only commas: comma is decimal separator
+  const dotCount = (cleaned.match(/\./g) || []).length;
+  const commaCount = (cleaned.match(/,/g) || []).length;
+
+  if (commaCount > 0) {
+    // Commas present: dots are thousands separators, last comma is decimal
+    cleaned = cleaned.replace(/\./g, '').replace(/,/, '.');
+  } else if (dotCount > 1) {
+    // Multiple dots: all are thousands separators (e.g., "1.868.000")
+    cleaned = cleaned.replace(/\./g, '');
+  } else if (dotCount === 1) {
+    // Single dot: could be decimal (4.8) or thousands (1.868)
+    // If 3 digits after dot, it's thousands separator
+    const parts = cleaned.split('.');
+    if (parts[1] && parts[1].length === 3) {
+      cleaned = cleaned.replace('.', '');
+    }
+    // Otherwise keep as decimal
+  }
+
+  return parseFloat(cleaned) || 0;
+}
+
+/**
  * Parse CSV text into array of row objects keyed by header names.
  * Handles quoted fields with embedded commas and escaped quotes.
  */
@@ -61,6 +96,16 @@ function parseCSV(csv: string): Record<string, string>[] {
 }
 
 /**
+ * Derive memberLevel from price when not specified in Google Sheets.
+ * Matches the pricing tiers from the actual course data.
+ */
+function deriveMemberLevel(price: number): MemberLevel {
+  if (price >= 38000000) return 'VIP';
+  if (price >= 10000000) return 'Premium';
+  return 'Free';
+}
+
+/**
  * Transform a raw Google Sheet row into a Course object
  */
 function rowToCourse(row: Record<string, string>): Course | null {
@@ -68,25 +113,28 @@ function rowToCourse(row: Record<string, string>): Course | null {
   const title = (row['Title'] || row['title'] || '').trim();
   if (!id || !title) return null;
 
-  const price = parseFloat(row['Price'] || row['price'] || '0') || 0;
-  const originalPrice = parseFloat(row['OriginalPrice'] || row['originalPrice'] || row['Original Price'] || '0') || undefined;
-  const rating = parseFloat(row['Rating'] || row['rating'] || '0') || 0;
-  const reviewsCount = parseInt(row['ReviewsCount'] || row['reviewsCount'] || row['Reviews Count'] || '0', 10) || 0;
-  const enrollmentsCount = parseInt(row['EnrollmentsCount'] || row['enrollmentsCount'] || row['Enrollments Count'] || '0', 10) || 0;
-  const duration = parseInt(row['Duration'] || row['duration'] || '0', 10) || 0;
-  const lessonsCount = parseInt(row['LessonsCount'] || row['lessonsCount'] || row['Lessons Count'] || '0', 10) || 0;
+  const price = parseVietnameseNumber(row['Price'] || row['price'] || '0');
+  const originalPriceRaw = parseVietnameseNumber(row['OriginalPrice'] || row['originalPrice'] || row['Original Price'] || '0');
+  const originalPrice = originalPriceRaw > 0 ? originalPriceRaw : undefined;
+  const rating = parseVietnameseNumber(row['Rating'] || row['rating'] || '0');
+  const reviewsCount = Math.round(parseVietnameseNumber(row['ReviewsCount'] || row['reviewsCount'] || row['Reviews Count'] || '0'));
+  const enrollmentsCount = Math.round(parseVietnameseNumber(row['EnrollmentsCount'] || row['enrollmentsCount'] || row['Enrollments Count'] || '0'));
+  const duration = Math.round(parseVietnameseNumber(row['Duration'] || row['duration'] || '0'));
+  const lessonsCount = Math.round(parseVietnameseNumber(row['LessonsCount'] || row['lessonsCount'] || row['Lessons Count'] || '0'));
   const badge = (row['Badge'] || row['badge'] || '').trim() as Course['badge'] || undefined;
   const category = (row['Category'] || row['category'] || '').trim();
-  const memberLevel = (row['MemberLevel'] || row['memberLevel'] || row['Member Level'] || 'Free').trim() as MemberLevel;
+  const memberLevel = (row['MemberLevel'] || row['memberLevel'] || row['Member Level'] || '').trim() as MemberLevel;
+  // Determine memberLevel from price if not specified in sheet
+  const effectiveMemberLevel = (['Free', 'Premium', 'VIP'].includes(memberLevel) ? memberLevel : deriveMemberLevel(price)) as MemberLevel;
 
   return {
     id,
     thumbnail: (row['Thumbnail'] || row['thumbnail'] || '').trim(),
     title,
     description: (row['Description'] || row['description'] || '').trim(),
-    instructor: (row['Instructor'] || row['instructor'] || 'WEDU').trim(),
+    instructor: (row['Instructor'] || row['instructor'] || 'WePower Academy').trim(),
     price,
-    originalPrice: originalPrice && originalPrice > 0 ? originalPrice : undefined,
+    originalPrice,
     rating: Math.min(5, Math.max(0, rating)),
     reviewsCount,
     enrollmentsCount,
@@ -95,7 +143,7 @@ function rowToCourse(row: Record<string, string>): Course | null {
     isFree: price === 0,
     badge: badge && ['NEW', 'BESTSELLER', 'PREMIUM'].includes(badge) ? badge : undefined,
     category,
-    memberLevel: ['Free', 'Premium', 'VIP'].includes(memberLevel) ? memberLevel : 'Free',
+    memberLevel: effectiveMemberLevel,
   };
 }
 

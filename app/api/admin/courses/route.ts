@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       title: body.title || '',
       description: body.description || '',
       thumbnail: body.thumbnail || '',
-      instructor: body.instructor || 'WEDU',
+      instructor: body.instructor || 'WePower Academy',
       category: body.category || '',
       price: Number(body.price) || 0,
       original_price: body.originalPrice ? Number(body.originalPrice) : undefined,

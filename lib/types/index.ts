@@ -555,7 +555,7 @@ export function courseRowToFrontend(row: CourseRow): Course {
     title: row.title,
     description: row.description || '',
     thumbnail: row.thumbnail || '',
-    instructor: row.instructor || 'WEDU',
+    instructor: row.instructor || 'WePower Academy',
     category: row.category || '',
     price: Number(row.price) || 0,
     originalPrice: row.original_price ? Number(row.original_price) : undefined,

@@ -152,8 +152,10 @@ export async function syncSheetUsersToSupabase(sheetUsers: Array<{
   name: string;
   phone?: string;
   role?: string;
+  systemRole?: string;
   memberLevel?: string;
   passwordHash?: string;
+  status?: string;
 }>): Promise<{ added: number; updated: number; skipped: number }> {
   const supabase = getSupabaseAdmin();
   const now = new Date().toISOString();
@@ -169,13 +171,19 @@ export async function syncSheetUsersToSupabase(sheetUsers: Array<{
       // Check if user already exists in Supabase
       const { data: existing } = await supabase
         .from('users')
-        .select('id, email, name, phone, role, member_level')
+        .select('id, email, name, phone, role, system_role, member_level, status')
         .eq('email', email)
         .limit(1)
         .single();
 
       const validRole = ['admin', 'sub_admin', 'instructor', 'user'].includes(u.role || '') ? u.role! : 'user';
       const validLevel = ['Free', 'Premium', 'VIP'].includes(u.memberLevel || '') ? u.memberLevel! : 'Free';
+      const validSystemRole = ['admin', 'instructor', 'student'].includes(u.systemRole || '')
+        ? u.systemRole!
+        : (validRole === 'admin' || validRole === 'sub_admin') ? 'admin'
+        : validRole === 'instructor' ? 'instructor'
+        : 'student';
+      const validStatus = ['active', 'inactive', 'banned'].includes(u.status || '') ? u.status! : 'active';
 
       if (existing) {
         // Update only if Sheet has newer/different info (don't overwrite with empty values)
@@ -184,6 +192,8 @@ export async function syncSheetUsersToSupabase(sheetUsers: Array<{
         if (u.phone && u.phone !== existing.phone) updates.phone = u.phone;
         if (u.role && validRole !== existing.role) updates.role = validRole;
         if (u.memberLevel && validLevel !== existing.member_level) updates.member_level = validLevel;
+        if (u.systemRole && validSystemRole !== existing.system_role) updates.system_role = validSystemRole;
+        if (u.status && validStatus !== existing.status) updates.status = validStatus;
 
         // Only update if there are actual changes beyond updated_at
         if (Object.keys(updates).length > 1) {
@@ -206,7 +216,9 @@ export async function syncSheetUsersToSupabase(sheetUsers: Array<{
             phone: u.phone || '',
             password_hash: u.passwordHash || '',
             role: validRole,
+            system_role: validSystemRole,
             member_level: validLevel,
+            status: validStatus,
             created_at: now,
             updated_at: now,
           });

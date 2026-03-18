@@ -116,17 +116,37 @@ async function syncOrders(sheetId: string): Promise<{ added: number; skipped: nu
     const total = parseFloat((row['Tổng tiền'] || row['Tong tien'] || '0').replace(/[^0-9.-]/g, '')) || 0;
     const createdAt = row['Thời gian'] || row['Thoi gian'] || new Date().toISOString();
 
+    const statusRaw = row['Trạng thái'] || row['Trang thai'] || 'Đang chờ xử lý';
+    const transactionCode = row['Mã giao dịch'] || row['Ma giao dich'] || row['Mã GD'] || '';
+
+    // Lookup user_id from email
+    let userId: string | null = null;
+    const { data: userLookup } = await supabase
+      .from('users').select('id').eq('email', email).limit(1).single();
+    if (userLookup) userId = userLookup.id;
+
+    // Map Vietnamese status to payment_status
+    const sLower = statusRaw.toLowerCase();
+    const paymentStatus = sLower.includes('hoàn tất') || sLower.includes('thành công') || sLower.includes('completed')
+      ? 'completed'
+      : sLower.includes('thất bại') || sLower.includes('hủy') || sLower.includes('failed')
+      ? 'failed'
+      : 'pending';
+
     const { error } = await supabase.from('orders').insert({
       order_id: orderId,
+      user_id: userId,
       user_email: email,
       user_name: row['Tên khách hàng'] || row['Ten khach hang'] || '',
       user_phone: row['Số điện thoại'] || row['So dien thoai'] || row['SĐT'] || '',
       course_names: row['Khóa học'] || row['Khoa hoc'] || '',
       course_ids: row['Mã khóa học'] || row['Ma khoa hoc'] || '',
       total,
+      currency: 'VND',
       payment_method: row['Phương thức thanh toán'] || row['Phuong thuc thanh toan'] || row['PTTT'] || '',
-      status: row['Trạng thái'] || row['Trang thai'] || 'Đang chờ xử lý',
-      note: row['Mã giao dịch'] || row['Ma giao dich'] || '',
+      status: statusRaw,
+      payment_status: paymentStatus,
+      transaction_code: transactionCode,
       created_at: parseDate(createdAt),
     });
 
@@ -181,7 +201,35 @@ async function syncEnrollments(sheetId: string): Promise<{ added: number; skippe
     });
 
     if (error) { stats.errors++; console.error('[SyncEnrollments] Insert error:', error.message); }
-    else { stats.added++; }
+    else {
+      stats.added++;
+
+      // Also create course_access record if user exists in users table
+      const { data: userLookup } = await supabase
+        .from('users').select('id').eq('email', email).limit(1).single();
+      if (userLookup) {
+        const { data: existingAccess } = await supabase
+          .from('course_access')
+          .select('id')
+          .eq('user_id', userLookup.id)
+          .eq('course_id', courseId)
+          .limit(1)
+          .single();
+
+        if (!existingAccess) {
+          await supabase.from('course_access').insert({
+            user_id: userLookup.id,
+            course_id: courseId,
+            access_tier: 'free',
+            source: 'system',
+            status: 'active',
+            activated_at: parseDate(enrolledAt),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+      }
+    }
   }
 
   return stats;
@@ -230,30 +278,44 @@ async function syncReviews(sheetId: string): Promise<{ added: number; skipped: n
   return stats;
 }
 
-async function syncCourses(): Promise<{ added: number; skipped: number; errors: number }> {
+async function syncCourses(sheetId?: string): Promise<{ added: number; updated: number; skipped: number; errors: number }> {
   const supabase = getSupabaseAdmin();
-  const stats = { added: 0, skipped: 0, errors: 0 };
+  const stats = { added: 0, updated: 0, skipped: 0, errors: 0 };
 
-  // Import fallback courses as seed data
-  const { FALLBACK_COURSES } = await import('@/lib/fallback-data');
+  // Try Google Sheets first, fall back to embedded data
+  let courses: Array<{
+    id: string; title: string; description: string; thumbnail: string;
+    instructor: string; category: string; price: number; originalPrice?: number;
+    rating: number; reviewsCount: number; enrollmentsCount: number;
+    duration: number; lessonsCount: number; badge?: string; memberLevel: string;
+  }> = [];
 
-  for (const course of FALLBACK_COURSES) {
-    // Check if already exists
-    const { data: existing } = await supabase
-      .from('courses')
-      .select('id')
-      .eq('id', course.id)
-      .limit(1)
-      .single();
+  if (sheetId) {
+    try {
+      const { fetchCoursesFromSheet } = await import('@/lib/googleSheets/courses');
+      const sheetCourses = await fetchCoursesFromSheet(sheetId);
+      if (sheetCourses.length > 0) {
+        courses = sheetCourses;
+        console.log(`[SyncCourses] Using ${sheetCourses.length} courses from Google Sheets`);
+      }
+    } catch (err) {
+      console.warn('[SyncCourses] Failed to fetch from Google Sheets:', err);
+    }
+  }
 
-    if (existing) { stats.skipped++; continue; }
+  if (courses.length === 0) {
+    const { FALLBACK_COURSES } = await import('@/lib/fallback-data');
+    courses = FALLBACK_COURSES;
+    console.log(`[SyncCourses] Using ${courses.length} courses from fallback data`);
+  }
 
-    const { error } = await supabase.from('courses').insert({
+  for (const course of courses) {
+    const courseData = {
       id: course.id,
       title: course.title,
       description: course.description || '',
       thumbnail: course.thumbnail || '',
-      instructor: course.instructor || 'WEDU',
+      instructor: course.instructor || 'WePower Academy',
       category: course.category || '',
       price: course.price ?? 0,
       original_price: course.originalPrice ?? null,
@@ -265,11 +327,30 @@ async function syncCourses(): Promise<{ added: number; skipped: number; errors: 
       badge: course.badge || null,
       member_level: course.memberLevel || 'Free',
       is_active: true,
+      status: 'published',
+      visibility: 'public',
       updated_at: new Date().toISOString(),
-    });
+    };
 
-    if (error) { stats.errors++; console.error('[SyncCourses] Insert error:', error.message); }
-    else { stats.added++; }
+    const { data: existing } = await supabase
+      .from('courses')
+      .select('id')
+      .eq('id', course.id)
+      .limit(1)
+      .single();
+
+    if (existing) {
+      // Update existing course with latest data from source
+      const { error } = await supabase.from('courses')
+        .update(courseData)
+        .eq('id', course.id);
+      if (error) { stats.errors++; console.error('[SyncCourses] Update error:', error.message); }
+      else { stats.updated++; }
+    } else {
+      const { error } = await supabase.from('courses').insert(courseData);
+      if (error) { stats.errors++; console.error('[SyncCourses] Insert error:', error.message); }
+      else { stats.added++; }
+    }
   }
 
   return stats;
@@ -396,9 +477,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const tables = body.tables || ['courses', 'orders', 'enrollments', 'reviews', 'chapters'];
 
-    // Sync courses from fallback data (seed)
+    // Sync courses from Google Sheets (or fallback data)
     if (tables.includes('courses')) {
-      results.courses = await syncCourses();
+      results.courses = await syncCourses(sheetId || undefined);
     }
 
     // Sync orders from CSV

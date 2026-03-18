@@ -6,6 +6,7 @@ import { getAllCourses } from '@/lib/supabase/courses';
 import { FALLBACK_COURSES } from '@/lib/fallback-data';
 import { getCachedCourses, setCachedCourses } from '@/lib/supabase/courses-cache';
 import { courseRowToFrontend, type CourseRow } from '@/lib/types';
+import { fetchCoursesFromSheet } from '@/lib/googleSheets/courses';
 
 /**
  * GET /api/courses
@@ -13,14 +14,8 @@ import { courseRowToFrontend, type CourseRow } from '@/lib/types';
  * Data flow (priority order):
  * 1. In-memory cache (30s TTL) — fastest, avoids external calls
  * 2. Supabase courses table — PRIMARY source of truth
- * 3. Fallback embedded data — offline / error resilience
- *
- * Architecture:
- *   Supabase (courses table)
- *       ↓ query
- *   /api/courses (transform to frontend shape)
- *       ↓ cache
- *   Frontend (CoursesContext)
+ * 3. Google Sheets CSV — secondary live source
+ * 4. Fallback embedded data — offline / error resilience
  */
 export async function GET() {
   try {
@@ -43,9 +38,25 @@ export async function GET() {
       console.warn('[Courses] Supabase fetch failed:', err instanceof Error ? err.message : String(err));
     }
 
-    // 3. Fallback to embedded data if Supabase returned nothing
+    // 3. Try Google Sheets if Supabase returned nothing
     if (courses.length === 0) {
-      console.warn('[Courses] Supabase returned empty, using fallback data');
+      const sheetId = process.env.GOOGLE_SHEET_ID || process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID;
+      if (sheetId) {
+        try {
+          const sheetCourses = await fetchCoursesFromSheet(sheetId);
+          if (sheetCourses.length > 0) {
+            courses = sheetCourses;
+            console.log(`[Courses] Using ${sheetCourses.length} courses from Google Sheets`);
+          }
+        } catch (err) {
+          console.warn('[Courses] Google Sheets fetch failed:', err instanceof Error ? err.message : String(err));
+        }
+      }
+    }
+
+    // 4. Fallback to embedded data
+    if (courses.length === 0) {
+      console.warn('[Courses] All sources empty, using fallback data');
       courses = FALLBACK_COURSES;
     }
 
