@@ -1,7 +1,8 @@
 /**
  * Shared in-memory cache for public courses API.
+ * Caches courses fetched from Google Sheets (primary source).
  * Admin operations can invalidate this cache so that the next
- * public GET /api/courses returns fresh data from Supabase.
+ * public GET /api/courses returns fresh data from the sheet.
  */
 
 let cachedCourses: any[] | null = null;

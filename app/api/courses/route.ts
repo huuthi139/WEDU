@@ -2,14 +2,28 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-import { getAllCourses } from '@/lib/supabase/courses';
-import { getAllChapterStats } from '@/lib/supabase/chapters';
+import { fetchCoursesFromSheet } from '@/lib/googleSheets/courses';
 import { FALLBACK_COURSES } from '@/lib/fallback-data';
 import { getCachedCourses, setCachedCourses } from '@/lib/supabase/courses-cache';
 
+/**
+ * GET /api/courses
+ *
+ * Data flow (priority order):
+ * 1. In-memory cache (30s TTL) — fastest, avoids external calls
+ * 2. Google Sheets CSV export — PRIMARY source of truth
+ * 3. Fallback embedded data — offline / error resilience
+ *
+ * Architecture:
+ *   Google Sheets (Courses tab)
+ *       ↓ CSV export
+ *   /api/courses (parse + transform)
+ *       ↓ cache
+ *   Frontend (CoursesContext)
+ */
 export async function GET() {
   try {
-    // Serve from cache if still fresh
+    // 1. Serve from cache if still fresh
     const cached = getCachedCourses();
     if (cached.fresh && cached.courses) {
       const response = NextResponse.json({ success: true, courses: cached.courses });
@@ -17,38 +31,17 @@ export async function GET() {
       return response;
     }
 
-    // Fetch from Supabase (source of truth)
-    const [supabaseCourses, chapterStats] = await Promise.all([
-      getAllCourses(),
-      getAllChapterStats(),
-    ]);
+    // 2. Fetch from Google Sheets (primary source of truth)
+    const sheetId = process.env.GOOGLE_SHEET_ID || process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID;
+    let courses: any[] = [];
 
-    let courses: any[];
-    if (supabaseCourses.length > 0) {
-      courses = supabaseCourses.map(c => {
-        const stats = chapterStats[c.id];
-        return {
-          id: c.id,
-          thumbnail: c.thumbnail || '',
-          title: c.title || '',
-          description: c.description || '',
-          instructor: c.instructor || 'WEDU',
-          price: c.price || 0,
-          originalPrice: c.original_price || undefined,
-          rating: c.rating || 0,
-          reviewsCount: c.reviews_count || 0,
-          enrollmentsCount: c.enrollments_count || 0,
-          duration: stats?.duration || c.duration || 0,
-          lessonsCount: stats?.lessonsCount || c.lessons_count || 0,
-          isFree: (c.price || 0) === 0,
-          badge: c.badge || undefined,
-          category: c.category || '',
-          memberLevel: c.member_level || 'Free',
-        };
-      });
-    } else {
-      // Fallback to embedded data if Supabase returned nothing
-      console.warn('[Courses] Supabase returned empty, using fallback data');
+    if (sheetId) {
+      courses = await fetchCoursesFromSheet(sheetId);
+    }
+
+    // 3. Fallback to embedded data if Google Sheets returned nothing
+    if (courses.length === 0) {
+      console.warn('[Courses] Google Sheets returned empty, using fallback data');
       courses = FALLBACK_COURSES;
     }
 
