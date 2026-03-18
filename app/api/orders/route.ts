@@ -1,16 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createOrder } from '@/lib/supabase/orders';
-
-function formatTimestamp(isoString: string): string {
-  const d = new Date(isoString);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
-}
+import { grantCourseAccess } from '@/lib/supabase/course-access';
+import { getSupabaseAdmin } from '@/lib/supabase/client';
+import { getSession } from '@/lib/auth/session';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { rowData, orderId } = body;
+    const { rowData, orderId, courseItems } = body;
 
     // Validate order data
     if (!rowData || !Array.isArray(rowData) || rowData.length === 0 || rowData.length > 20) {
@@ -39,6 +36,56 @@ export async function POST(request: Request) {
       total: Number(sanitizedRowData[7]) || 0,
       paymentMethod: String(sanitizedRowData[8] || ''),
     });
+
+    // Grant course access for purchased courses
+    const session = await getSession();
+    if (session && order) {
+      const supabase = getSupabaseAdmin();
+      const { data: user } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', session.email.toLowerCase())
+        .limit(1)
+        .single();
+
+      if (user) {
+        // Parse courseIds from order data
+        const courseIdsStr = String(sanitizedRowData[6] || '');
+        const courseIds = courseIdsStr.split(',').map((id: string) => id.trim()).filter(Boolean);
+
+        // If courseItems are provided with access_tier info, use them
+        if (Array.isArray(courseItems) && courseItems.length > 0) {
+          for (const item of courseItems) {
+            const tier = item.accessTier || 'premium';
+            await grantCourseAccess({
+              userId: user.id,
+              courseId: item.courseId,
+              accessTier: tier,
+              source: 'order',
+            });
+
+            // Also create order_item with access_tier
+            await supabase.from('order_items').insert({
+              order_id: order.id,
+              course_id: item.courseId,
+              course_title: item.courseTitle || '',
+              access_tier: tier,
+              price: item.price || 0,
+            });
+          }
+        } else {
+          // Fallback: grant premium access for all courses in order
+          for (const courseId of courseIds) {
+            await grantCourseAccess({
+              userId: user.id,
+              courseId,
+              accessTier: 'premium',
+              source: 'order',
+            });
+          }
+        }
+      }
+    }
 
     return NextResponse.json({ success: true, orderId: orderId || order?.order_id });
   } catch (error) {

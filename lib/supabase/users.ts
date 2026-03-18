@@ -11,7 +11,10 @@ export interface SupabaseUser {
   phone: string;
   password_hash: string;
   role: 'admin' | 'sub_admin' | 'instructor' | 'user';
+  system_role?: 'admin' | 'instructor' | 'student';
   member_level: 'Free' | 'Premium' | 'VIP';
+  avatar_url?: string | null;
+  status?: string;
   created_at: string;
   updated_at: string;
 }

@@ -1,12 +1,28 @@
 /**
  * WEDU Platform - Centralized Type Definitions
- * All entity types aligned with Supabase schema.
+ * Phase 4: Restructured with proper access model
  */
 
 // =============================================
 // ENUMS / CONSTANTS
 // =============================================
 
+/** System-level role for admin/management */
+export type SystemRole = 'admin' | 'instructor' | 'student';
+
+/** Per-course access tier */
+export type AccessTier = 'free' | 'premium' | 'vip';
+
+/** Lesson content type */
+export type LessonType = 'video' | 'text' | 'pdf' | 'audio' | 'quiz' | 'live' | 'replay';
+
+/** Course access source */
+export type AccessSource = 'manual' | 'order' | 'gift' | 'admin' | 'scholarship' | 'system';
+
+/** Course access status */
+export type AccessStatus = 'active' | 'expired' | 'cancelled';
+
+// Legacy types kept for backward compatibility during migration
 export type MemberLevel = 'Free' | 'Premium' | 'VIP';
 export type UserRole = 'admin' | 'sub_admin' | 'instructor' | 'student' | 'user';
 export type EnrollmentStatus = 'active' | 'paused' | 'completed';
@@ -24,8 +40,10 @@ export interface Profile {
   phone: string;
   password_hash: string;
   role: UserRole;
+  system_role: SystemRole;
   member_level: MemberLevel;
   avatar_url: string | null;
+  status: string;
   created_at: string;
   updated_at: string;
 }
@@ -37,6 +55,7 @@ export interface ProfilePublic {
   name: string;
   phone: string;
   role: UserRole;
+  systemRole: SystemRole;
   memberLevel: MemberLevel;
   avatarUrl: string | null;
 }
@@ -93,7 +112,56 @@ export interface CourseRow {
 }
 
 // =============================================
-// COURSE SECTION (maps to public.course_sections)
+// COURSE CHAPTER (maps to public.course_chapters)
+// =============================================
+
+export interface CourseChapter {
+  id: string;
+  courseId: string;
+  title: string;
+  description: string;
+  sortOrder: number;
+  sessions?: CourseSession[];
+}
+
+export interface CourseChapterRow {
+  id: string;
+  course_id: string;
+  title: string;
+  description: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// =============================================
+// COURSE SESSION (maps to public.course_sessions)
+// =============================================
+
+export interface CourseSession {
+  id: string;
+  courseId: string;
+  chapterId: string;
+  title: string;
+  description: string;
+  sortOrder: number;
+  lessons?: LessonFrontend[];
+}
+
+export interface CourseSessionRow {
+  id: string;
+  course_id: string;
+  chapter_id: string;
+  title: string;
+  description: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// =============================================
+// COURSE SECTION (legacy - maps to public.course_sections)
+// Kept for backward compatibility
 // =============================================
 
 export interface CourseSection {
@@ -119,6 +187,28 @@ export interface CourseSectionRow {
 // LESSON (maps to public.lessons)
 // =============================================
 
+/** Frontend lesson shape with new access_tier */
+export interface LessonFrontend {
+  id: string;
+  courseId: string;
+  chapterId: string | null;
+  sessionId: string | null;
+  title: string;
+  slug: string;
+  lessonType: LessonType;
+  accessTier: AccessTier;
+  summary: string;
+  content: string;
+  videoId: string;
+  videoUrl: string;
+  directPlayUrl: string;
+  durationSeconds: number;
+  duration: string;
+  sortOrder: number;
+  status: string;
+}
+
+/** Legacy lesson interface (backward compat) */
 export interface Lesson {
   id: string;
   courseId: string;
@@ -137,14 +227,23 @@ export interface LessonRow {
   id: string;
   course_id: string;
   section_id: string | null;
+  chapter_id: string | null;
+  session_id: string | null;
   title: string;
   description: string;
-  duration: string;
-  duration_seconds: number;
+  slug: string;
+  lesson_type: string;
+  access_tier: string;
+  summary: string;
+  content: string;
+  video_id: string;
   video_url: string;
   direct_play_url: string;
+  duration: string;
+  duration_seconds: number;
   is_preview: boolean;
   sort_order: number;
+  status: string;
   created_at: string;
   updated_at: string;
 }
@@ -169,11 +268,43 @@ export interface LessonResourceRow {
   resource_type: string;
   url: string;
   file_size: number;
+  sort_order: number;
   created_at: string;
 }
 
 // =============================================
-// ENROLLMENT (maps to public.enrollments)
+// COURSE ACCESS (maps to public.course_access)
+// Per-course access control - replaces enrollment-based access
+// =============================================
+
+export interface CourseAccess {
+  id: string;
+  userId: string;
+  courseId: string;
+  accessTier: AccessTier;
+  source: AccessSource;
+  status: AccessStatus;
+  activatedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface CourseAccessRow {
+  id: string;
+  user_id: string;
+  course_id: string;
+  access_tier: string;
+  source: string;
+  status: string;
+  activated_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// =============================================
+// ENROLLMENT (legacy - maps to public.enrollments)
+// Kept for backward compatibility
 // =============================================
 
 export interface Enrollment {
@@ -195,7 +326,7 @@ export interface EnrollmentRow {
 }
 
 // =============================================
-// COURSE ENROLLMENT (maps to public.course_enrollments)
+// COURSE ENROLLMENT (legacy - maps to public.course_enrollments)
 // =============================================
 
 export interface CourseEnrollment {
@@ -323,6 +454,7 @@ export interface OrderItem {
   orderId: string;
   courseId: string;
   courseTitle: string;
+  accessTier: AccessTier;
   price: number;
 }
 
@@ -331,6 +463,7 @@ export interface OrderItemRow {
   order_id: string;
   course_id: string;
   course_title: string;
+  access_tier: string;
   price: number;
   created_at: string;
 }
@@ -378,6 +511,41 @@ export interface Chapter {
 }
 
 // =============================================
+// ACCESS TIER HELPERS
+// =============================================
+
+const ACCESS_TIER_RANK: Record<AccessTier, number> = {
+  free: 0,
+  premium: 1,
+  vip: 2,
+};
+
+/** Check if a given access tier meets the required tier */
+export function meetsAccessTier(userTier: AccessTier | undefined, requiredTier: AccessTier): boolean {
+  if (requiredTier === 'free') return true;
+  if (!userTier) return false;
+  return ACCESS_TIER_RANK[userTier] >= ACCESS_TIER_RANK[requiredTier];
+}
+
+/** Convert legacy MemberLevel to AccessTier */
+export function memberLevelToAccessTier(level: MemberLevel | string): AccessTier {
+  switch (level) {
+    case 'VIP': return 'vip';
+    case 'Premium': return 'premium';
+    default: return 'free';
+  }
+}
+
+/** Convert AccessTier to display label */
+export function accessTierLabel(tier: AccessTier): string {
+  switch (tier) {
+    case 'vip': return 'VIP';
+    case 'premium': return 'Premium';
+    default: return 'Free';
+  }
+}
+
+// =============================================
 // MAPPERS: Convert between DB row and frontend shape
 // =============================================
 
@@ -412,11 +580,49 @@ export function profileRowToPublic(row: Profile): ProfilePublic {
     name: row.name,
     phone: row.phone || '',
     role: row.role,
+    systemRole: row.system_role || 'student',
     memberLevel: row.member_level,
     avatarUrl: row.avatar_url || null,
   };
 }
 
+export function courseAccessRowToFrontend(row: CourseAccessRow): CourseAccess {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    courseId: row.course_id,
+    accessTier: row.access_tier as AccessTier,
+    source: row.source as AccessSource,
+    status: row.status as AccessStatus,
+    activatedAt: row.activated_at,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+  };
+}
+
+export function lessonRowToFrontend(row: LessonRow): LessonFrontend {
+  return {
+    id: row.id,
+    courseId: row.course_id,
+    chapterId: row.chapter_id,
+    sessionId: row.session_id,
+    title: row.title,
+    slug: row.slug || '',
+    lessonType: (row.lesson_type || 'video') as LessonType,
+    accessTier: (row.access_tier || 'free') as AccessTier,
+    summary: row.summary || '',
+    content: row.content || '',
+    videoId: row.video_id || '',
+    videoUrl: row.video_url || '',
+    directPlayUrl: row.direct_play_url || '',
+    durationSeconds: row.duration_seconds || 0,
+    duration: row.duration || '',
+    sortOrder: row.sort_order || 0,
+    status: row.status || 'published',
+  };
+}
+
+/** Legacy mapper - kept for backward compatibility */
 export function enrollmentRowToFrontend(row: EnrollmentRow): Enrollment {
   return {
     courseId: row.course_id,

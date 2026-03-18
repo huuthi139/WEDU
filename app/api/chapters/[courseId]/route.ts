@@ -19,6 +19,17 @@ function parseDurationToSeconds(duration: string): number {
 }
 
 /**
+ * Map access_tier DB value to display MemberLevel.
+ */
+function accessTierToLevel(tier: string | undefined): string {
+  switch (tier) {
+    case 'vip': return 'VIP';
+    case 'premium': return 'Premium';
+    default: return 'Free';
+  }
+}
+
+/**
  * Convert normalized sections+lessons to the legacy chapter format
  * that the frontend expects.
  */
@@ -30,7 +41,9 @@ function sectionsToChapterFormat(sections: Array<{ id: string; title: string; le
       id: ls.id,
       title: ls.title,
       duration: ls.duration || '',
-      requiredLevel: 'Free',
+      accessTier: (ls as any).access_tier || 'free',
+      requiredLevel: accessTierToLevel((ls as any).access_tier),
+      lessonType: (ls as any).lesson_type || 'video',
       directPlayUrl: ls.direct_play_url || '',
       isPreview: ls.is_preview || false,
       thumbnail: '',
@@ -162,16 +175,28 @@ export async function POST(
         totalLessons++;
         totalDuration += durationSecs;
 
+        // Map requiredLevel to access_tier for backward compat
+        let accessTier = ls.accessTier || 'free';
+        if (!ls.accessTier && ls.requiredLevel) {
+          accessTier = ls.requiredLevel === 'VIP' ? 'vip' : ls.requiredLevel === 'Premium' ? 'premium' : 'free';
+        }
+        if (!ls.accessTier && ls.isPreview) {
+          accessTier = 'free';
+        }
+
         await supabase.from('lessons').insert({
           course_id: courseId,
           section_id: section.id,
+          chapter_id: section.id,
           title: ls.title || `Bài ${lIdx + 1}`,
           description: '',
           duration: ls.duration || '00:00',
           duration_seconds: durationSecs,
           video_url: '',
           direct_play_url: ls.directPlayUrl || '',
-          is_preview: ls.isPreview || false,
+          is_preview: ls.isPreview || accessTier === 'free',
+          access_tier: accessTier,
+          lesson_type: ls.lessonType || 'video',
           sort_order: lIdx,
           created_at: now,
           updated_at: now,
@@ -237,16 +262,27 @@ async function migrateJsonbToNormalized(courseId: string, chapters: any[]): Prom
           const durationSecs = parseDurationToSeconds(ls.duration || '');
           totalLessons++;
           totalDuration += durationSecs;
+          // Map requiredLevel to access_tier
+          let accessTier = ls.accessTier || 'free';
+          if (!ls.accessTier && ls.requiredLevel) {
+            accessTier = ls.requiredLevel === 'VIP' ? 'vip' : ls.requiredLevel === 'Premium' ? 'premium' : 'free';
+          }
+          if (!ls.accessTier && ls.isPreview) {
+            accessTier = 'free';
+          }
           return {
             course_id: courseId,
             section_id: section.id,
+            chapter_id: section.id,
             title: ls.title || `Bài ${lIdx + 1}`,
             description: '',
             duration: ls.duration || '00:00',
             duration_seconds: durationSecs,
             video_url: '',
             direct_play_url: ls.directPlayUrl || '',
-            is_preview: ls.isPreview || false,
+            is_preview: ls.isPreview || accessTier === 'free',
+            access_tier: accessTier,
+            lesson_type: ls.lessonType || 'video',
             sort_order: lIdx,
             created_at: now,
             updated_at: now,

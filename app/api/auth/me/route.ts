@@ -41,6 +41,7 @@ export async function GET() {
             email: created.email,
             name: created.name,
             role,
+            systemRole: 'student',
             memberLevel: created.member_level || 'Free',
             phone: created.phone || '',
             avatarUrl: null,
@@ -59,6 +60,7 @@ export async function GET() {
             email: sessionUser.email,
             name: sessionUser.name,
             role: sessionUser.role,
+            systemRole: 'student',
             memberLevel: sessionUser.memberLevel,
             phone: '',
             avatarUrl: null,
@@ -71,15 +73,24 @@ export async function GET() {
     const role = normalizeRole(dbUser.role);
     const permissions = getPermissionsForRole(role);
 
+    // Derive systemRole from role/system_role
+    let systemRole = dbUser.system_role || 'student';
+    if (!dbUser.system_role) {
+      if (role === 'admin' || role === 'sub_admin') systemRole = 'admin';
+      else if (role === 'instructor') systemRole = 'instructor';
+      else systemRole = 'student';
+    }
+
     return apiSuccess({
       user: {
         id: dbUser.id || '',
         email: dbUser.email,
         name: dbUser.name,
         role,
+        systemRole,
         memberLevel: dbUser.member_level || 'Free',
         phone: dbUser.phone || '',
-        avatarUrl: null,
+        avatarUrl: dbUser.avatar_url || null,
       },
       permissions,
     });

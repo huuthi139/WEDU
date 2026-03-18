@@ -6,13 +6,13 @@ import Link from 'next/link';
 import { useCourses } from '@/contexts/CoursesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEnrollment } from '@/contexts/EnrollmentContext';
-import type { MemberLevel } from '@/lib/types';
+import { useCourseAccess } from '@/contexts/CourseAccessContext';
+import type { MemberLevel, AccessTier } from '@/lib/types';
+import { meetsAccessTier, accessTierLabel } from '@/lib/types';
 import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
-import { canAccessLesson } from '@/lib/access-control';
+import { canAccessLesson, isStaff, getLessonCTALabel } from '@/lib/access-control';
 
 const defaultChapters: Chapter[] = [];
-
-const LEVEL_ORDER: Record<MemberLevel, number> = { Free: 0, Premium: 1, VIP: 2 };
 
 interface Comment {
   id: string;
@@ -64,9 +64,11 @@ export default function LearnPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { enrollCourse, isEnrolled, markLessonComplete } = useEnrollment();
+  const { getAccessTier, getAccess } = useCourseAccess();
   const { courses, isLoading } = useCourses();
   const courseId = params.courseId as string;
-  const userLevel: MemberLevel = user?.memberLevel || 'Free';
+  const courseAccessTier = user ? getAccessTier(courseId) : 'free' as AccessTier;
+  const courseAccess = user ? getAccess(courseId) : null;
 
   const course = courses.find(c => c.id === courseId);
 
@@ -85,12 +87,15 @@ export default function LearnPage() {
     }
   }, [user, isLoading, courseId, router]);
 
-  // Auto-enroll when authenticated user visits learn page
+  // Only auto-enroll for FREE courses when user visits learn page
+  // Paid courses require explicit purchase via order flow
   useEffect(() => {
-    if (user && courseId && !isEnrolled(courseId)) {
-      enrollCourse(courseId);
+    if (user && courseId && course && !isEnrolled(courseId)) {
+      if (course.isFree || course.price === 0) {
+        enrollCourse(courseId);
+      }
     }
-  }, [user, courseId, isEnrolled, enrollCourse]);
+  }, [user, courseId, course, isEnrolled, enrollCourse]);
 
   // Load comments when lesson changes
   useEffect(() => {
@@ -152,12 +157,24 @@ export default function LearnPage() {
     return () => { cancelled = true; };
   }, [courseId]);
 
+  // Build user profile for access checks
+  const userProfile = user ? {
+    id: user.id || '', email: user.email, name: user.name, phone: '',
+    role: user.role as any, systemRole: (user.systemRole || 'student') as any,
+    memberLevel: (user.memberLevel || 'Free') as any, avatarUrl: null,
+  } : null;
+
+  // Helper to check if a lesson is accessible
+  const isLessonAccessible = (lesson: Lesson) => {
+    return canAccessLesson(userProfile, courseAccess, { accessTier: lesson.accessTier });
+  };
+
   // Select first playable lesson on load
   useEffect(() => {
     if (chapters.length > 0 && !currentLessonId) {
       for (const ch of chapters) {
         for (const ls of ch.lessons) {
-          if (ls.directPlayUrl && LEVEL_ORDER[ls.requiredLevel] <= LEVEL_ORDER[userLevel]) {
+          if (ls.directPlayUrl && (ls.accessTier === 'free' || meetsAccessTier(courseAccessTier, ls.accessTier))) {
             setCurrentLessonId(ls.id);
             setExpandedChapters(new Set([ch.id]));
             return;
@@ -170,7 +187,7 @@ export default function LearnPage() {
         setExpandedChapters(new Set([chapters[0].id]));
       }
     }
-  }, [chapters, currentLessonId, userLevel]);
+  }, [chapters, currentLessonId, courseAccessTier]);
 
   if (isLoading) {
     return (
@@ -218,27 +235,10 @@ export default function LearnPage() {
 
   const totalLessons = chapters.reduce((sum, ch) => sum + ch.lessons.length, 0);
 
-  // Build a ProfilePublic-like object for access control
-  const userProfile = user ? {
-    id: '',
-    email: user.email,
-    name: user.name,
-    phone: '',
-    role: user.role as any,
-    memberLevel: userLevel,
-    avatarUrl: null,
-  } : null;
-
-  const userEnrollment = isEnrolled(courseId) ? {
-    courseId,
-    enrolledAt: '',
-    progress: 0,
-    completedLessons: [] as string[],
-    lastAccessedAt: '',
-  } : null;
+  // userProfile is defined above in the isLessonAccessible helper
 
   const selectLesson = (lesson: Lesson, chapter: Chapter) => {
-    const isLocked = LEVEL_ORDER[lesson.requiredLevel] > LEVEL_ORDER[userLevel];
+    const isLocked = !isLessonAccessible(lesson);
     if (isLocked) return;
     setCurrentLessonId(lesson.id);
     setExpandedChapters(prev => {
@@ -265,7 +265,7 @@ export default function LearnPage() {
 
   const goToLesson = (ls: typeof allLessons[0] | null) => {
     if (!ls) return;
-    if (LEVEL_ORDER[ls.requiredLevel] > LEVEL_ORDER[userLevel]) return;
+    if (!isLessonAccessible(ls)) return;
     setCurrentLessonId(ls.id);
     setExpandedChapters(prev => {
       const next = new Set(prev);
@@ -305,9 +305,9 @@ export default function LearnPage() {
                 <div className="hidden md:block">
                   <p className="text-white text-xs font-medium">{user.name}</p>
                   <span className={`text-[10px] font-bold ${
-                    userLevel === 'VIP' ? 'text-gold' : userLevel === 'Premium' ? 'text-teal' : 'text-gray-400'
+                    courseAccessTier === 'vip' ? 'text-gold' : courseAccessTier === 'premium' ? 'text-teal' : 'text-gray-400'
                   }`}>
-                    {userLevel}
+                    {accessTierLabel(courseAccessTier)}
                   </span>
                 </div>
               </div>
@@ -323,7 +323,28 @@ export default function LearnPage() {
           {/* Video Player */}
           <div className="relative bg-dark">
             <div className="aspect-video w-full max-h-[calc(100vh-280px)]">
-              {currentLesson?.directPlayUrl ? (
+              {currentLesson && !isLessonAccessible(currentLesson) ? (
+                /* Access denied overlay */
+                <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
+                  <div className="text-center p-8">
+                    <svg className="w-16 h-16 text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                    <p className="text-white text-lg font-bold mb-2">
+                      {currentLesson.accessTier === 'vip' ? 'Nội dung VIP / Coaching' : 'Nội dung Premium'}
+                    </p>
+                    <p className="text-gray-400 text-sm mb-4">
+                      {getLessonCTALabel(currentLesson.accessTier)}
+                    </p>
+                    <Link
+                      href={`/checkout?course=${courseId}`}
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-teal text-white rounded-lg font-bold hover:bg-teal/80 transition-colors"
+                    >
+                      {currentLesson.accessTier === 'vip' ? 'Nâng cấp VIP' : 'Mua khóa học'}
+                    </Link>
+                  </div>
+                </div>
+              ) : currentLesson?.directPlayUrl ? (
                 isEmbedUrl(currentLesson.directPlayUrl) ? (
                   <iframe
                     key={currentLesson.directPlayUrl}
@@ -379,13 +400,13 @@ export default function LearnPage() {
                   )}
                   {currentLesson && (
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                      currentLesson.requiredLevel === 'VIP'
+                      currentLesson.accessTier === 'vip'
                         ? 'bg-gradient-to-r from-gold/20 to-amber-500/20 text-gold border border-gold/30'
-                        : currentLesson.requiredLevel === 'Premium'
+                        : currentLesson.accessTier === 'premium'
                           ? 'bg-teal/10 text-teal border border-teal/20'
                           : 'bg-green-500/10 text-green-400 border border-green-500/20'
                     }`}>
-                      {currentLesson.requiredLevel === 'Free' ? 'FREE' : currentLesson.requiredLevel.toUpperCase()}
+                      {currentLesson.accessTier === 'free' ? 'FREE' : accessTierLabel(currentLesson.accessTier)}
                     </span>
                   )}
                   <span className="text-gray-500">Bài {currentGlobalIndex}/{totalLessons}</span>
@@ -396,7 +417,7 @@ export default function LearnPage() {
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   onClick={() => goToLesson(prevLesson ?? null)}
-                  disabled={!prevLesson || (prevLesson && LEVEL_ORDER[prevLesson.requiredLevel] > LEVEL_ORDER[userLevel])}
+                  disabled={!prevLesson || (prevLesson && !isLessonAccessible(prevLesson))}
                   className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   title="Bài trước"
                 >
@@ -406,7 +427,7 @@ export default function LearnPage() {
                 </button>
                 <button
                   onClick={() => goToLesson(nextLesson ?? null)}
-                  disabled={!nextLesson || (nextLesson && LEVEL_ORDER[nextLesson.requiredLevel] > LEVEL_ORDER[userLevel])}
+                  disabled={!nextLesson || (nextLesson && !isLessonAccessible(nextLesson))}
                   className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   title="Bài tiếp theo"
                 >
@@ -473,7 +494,7 @@ export default function LearnPage() {
                       {isExpanded && (
                         <div className="divide-y divide-white/5">
                           {chapter.lessons.map((lesson, i) => {
-                            const isLocked = LEVEL_ORDER[lesson.requiredLevel] > LEVEL_ORDER[userLevel];
+                            const isLocked = !isLessonAccessible(lesson);
                             const isActive = lesson.id === currentLessonId;
                             return (
                               <button
@@ -497,7 +518,7 @@ export default function LearnPage() {
                                   <p className={`text-sm truncate ${isActive ? 'text-teal font-semibold' : 'text-white'}`}>{lesson.title}</p>
                                   <div className="flex items-center gap-2 mt-0.5">
                                     <span className="text-xs text-gray-500">{lesson.duration}</span>
-                                    <LevelBadgeSmall level={lesson.requiredLevel} />
+                                    <LevelBadgeSmall level={lesson.requiredLevel} accessTier={lesson.accessTier} />
                                   </div>
                                 </div>
                               </button>
@@ -637,7 +658,7 @@ export default function LearnPage() {
                   {/* Lessons */}
                   {isExpanded && chapter.lessons.map((lesson, lessonIdx) => {
                     const isActive = lesson.id === currentLessonId;
-                    const isLocked = LEVEL_ORDER[lesson.requiredLevel] > LEVEL_ORDER[userLevel];
+                    const isLocked = !isLessonAccessible(lesson);
                     const lessonNum = lessonOffset + lessonIdx + 1;
 
                     return (
@@ -681,7 +702,7 @@ export default function LearnPage() {
                           </p>
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-xs text-gray-500">{lesson.duration}</span>
-                            <LevelBadgeSmall level={lesson.requiredLevel} />
+                            <LevelBadgeSmall level={lesson.requiredLevel} accessTier={lesson.accessTier} />
                           </div>
                         </div>
                       </button>
@@ -733,7 +754,7 @@ export default function LearnPage() {
                       </button>
                       {isExpanded && chapter.lessons.map((lesson, lessonIdx) => {
                         const isActive = lesson.id === currentLessonId;
-                        const isLocked = LEVEL_ORDER[lesson.requiredLevel] > LEVEL_ORDER[userLevel];
+                        const isLocked = !isLessonAccessible(lesson);
                         const lessonNum = lessonOffset + lessonIdx + 1;
                         return (
                           <button
@@ -761,7 +782,7 @@ export default function LearnPage() {
                               <p className={`text-sm truncate ${isActive ? 'text-teal font-semibold' : 'text-white'}`}>{lesson.title}</p>
                               <div className="flex items-center gap-2 mt-1">
                                 <span className="text-xs text-gray-500">{lesson.duration}</span>
-                                <LevelBadgeSmall level={lesson.requiredLevel} />
+                                <LevelBadgeSmall level={lesson.requiredLevel} accessTier={lesson.accessTier} />
                               </div>
                             </div>
                           </button>
@@ -779,16 +800,18 @@ export default function LearnPage() {
   );
 }
 
-function LevelBadgeSmall({ level }: { level: MemberLevel }) {
+function LevelBadgeSmall({ level, accessTier }: { level?: MemberLevel; accessTier?: AccessTier }) {
+  // Prefer accessTier if available
+  const tier = accessTier || (level === 'VIP' ? 'vip' : level === 'Premium' ? 'premium' : 'free');
   return (
     <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-      level === 'VIP'
+      tier === 'vip'
         ? 'bg-gold/10 text-gold'
-        : level === 'Premium'
+        : tier === 'premium'
           ? 'bg-teal/10 text-teal'
           : 'bg-green-500/10 text-green-400'
     }`}>
-      {level === 'Free' ? 'FREE' : level.toUpperCase()}
+      {tier === 'free' ? 'FREE' : accessTierLabel(tier)}
     </span>
   );
 }

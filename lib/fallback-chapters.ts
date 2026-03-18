@@ -2,13 +2,14 @@
  * Fallback chapter data for courses 1 and 6
  * Used when Supabase and GAS are empty/unreachable
  */
-import type { Chapter } from './utils/chapters';
+// Legacy fallback data - goes through normalizeChapters() which adds accessTier/lessonType
+// Using 'any' since these are raw data that get normalized at runtime
 
 // =============================================
 // COURSE 1: Thiết kế website với Wordpress
 // 1 chapter, 14 lessons
 // =============================================
-const COURSE_1_CHAPTERS: Chapter[] = [
+const COURSE_1_CHAPTERS: any[] = [
   {
     id: 'ch-1772094592657',
     title: 'WEBSITE',
@@ -35,7 +36,7 @@ const COURSE_1_CHAPTERS: Chapter[] = [
 // COURSE 6: Khởi nghiệp kiếm tiền với Youtube
 // 15 chapters, 123+ lessons
 // =============================================
-const COURSE_6_CHAPTERS: Chapter[] = [
+const COURSE_6_CHAPTERS: any[] = [
   // Chapter 0: KIẾM TIỀN YTB
   {
     id: 'ch-1772017757134',
@@ -269,7 +270,7 @@ const COURSE_6_CHAPTERS: Chapter[] = [
 // =============================================
 // Exported map
 // =============================================
-export const FALLBACK_CHAPTERS: Record<string, Chapter[]> = {
+export const FALLBACK_CHAPTERS: Record<string, any[]> = {
   '1': COURSE_1_CHAPTERS,
   '6': COURSE_6_CHAPTERS,
 };
