@@ -15,7 +15,7 @@ function createProxyFetch(): typeof globalThis.fetch | undefined {
   if (!proxyUrl) return undefined;
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line no-undef
     const { ProxyAgent, fetch: undiciFetch } = require('undici');
     const agent = new ProxyAgent(proxyUrl);
     return ((url: RequestInfo | URL, init?: RequestInit) =>
