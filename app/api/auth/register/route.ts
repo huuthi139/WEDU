@@ -1,7 +1,6 @@
 import { hashPassword } from '@/lib/auth/password';
 import { createSession } from '@/lib/auth/session';
 import { emailExists, createUserProfile } from '@/lib/supabase/users';
-import { syncUserToSheet } from '@/lib/sync/sheetSync';
 import { sendWelcomeEmail } from '@/lib/email/send';
 import { apiSuccess, ERR } from '@/lib/api/response';
 import { logger } from '@/lib/telemetry/logger';
@@ -33,7 +32,7 @@ export async function POST(request: Request) {
       return ERR.CONFLICT('Email đã được sử dụng. Vui lòng dùng email khác.');
     }
 
-    // Create user in Supabase (source of truth)
+    // Create user profile in Supabase (source of truth)
     await createUserProfile({
       email, name, phone, passwordHash: hashedPassword, role: 'user', memberLevel: 'Free',
     });
@@ -47,9 +46,6 @@ export async function POST(request: Request) {
         error: sessionErr instanceof Error ? sessionErr.message : String(sessionErr),
       });
     }
-
-    // Background sync to Google Sheet (non-blocking)
-    syncUserToSheet({ name, email, passwordHash: hashedPassword, phone });
 
     // Send welcome email (non-blocking)
     sendWelcomeEmail(email, name).catch(() => {});

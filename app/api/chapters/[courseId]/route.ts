@@ -2,150 +2,11 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-import { getChaptersByCourse, saveChapters } from '@/lib/supabase/chapters';
+import { getSectionsByCourse } from '@/lib/supabase/sections';
+import { getChaptersByCourse } from '@/lib/supabase/chapters';
 import { getSupabaseAdmin } from '@/lib/supabase/client';
 import { FALLBACK_CHAPTERS } from '@/lib/fallback-chapters';
-
-// ---------------------------------------------------------------------------
-// Google Apps Script fallback (read-only, for migrating old data)
-// ---------------------------------------------------------------------------
-const REQUEST_TIMEOUT = 30000;
-const READ_RETRIES = 2;
-const RETRY_DELAY = 1000;
-const READ_BATCH_SIZE = 6;
-
-function getScriptUrl(): string | null {
-  return process.env.GOOGLE_SCRIPT_URL || null;
-}
-
-async function safeParse(res: Response): Promise<any | null> {
-  const ct = res.headers.get('content-type') || '';
-  if (!ct.includes('json') && !ct.includes('javascript')) return null;
-  try { return await res.json(); } catch { return null; }
-}
-
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function scriptRead(scriptUrl: string, key: string): Promise<any> {
-  const qs = new URLSearchParams({ action: 'getChapters', courseId: key });
-  const url = `${scriptUrl}?${qs.toString()}`;
-
-  for (let attempt = 0; attempt <= READ_RETRIES; attempt++) {
-    try {
-      const res = await fetchWithTimeout(url, { redirect: 'follow', cache: 'no-store' });
-      const data = await safeParse(res);
-      if (!data?.success) {
-        if (attempt < READ_RETRIES) { await new Promise(r => setTimeout(r, RETRY_DELAY)); continue; }
-        return null;
-      }
-      return data.chapters ?? null;
-    } catch {
-      if (attempt < READ_RETRIES) { await new Promise(r => setTimeout(r, RETRY_DELAY)); continue; }
-      return null;
-    }
-  }
-  return null;
-}
-
-async function batchParallel<T>(tasks: (() => Promise<T>)[], batchSize: number): Promise<(T | null)[]> {
-  const results: (T | null)[] = [];
-  for (let i = 0; i < tasks.length; i += batchSize) {
-    const batch = tasks.slice(i, i + batchSize);
-    const settled = await Promise.allSettled(batch.map(fn => fn()));
-    results.push(...settled.map(r => r.status === 'fulfilled' ? r.value : null));
-  }
-  return results;
-}
-
-/** Read from GAS (legacy format support) */
-async function readFromGAS(courseId: string): Promise<any[] | null> {
-  const scriptUrl = getScriptUrl();
-  if (!scriptUrl) return null;
-
-  try {
-    const raw = await scriptRead(scriptUrl, courseId);
-    if (!raw) return null;
-
-    // New format: { _n: count }
-    if (raw._n !== undefined) {
-      const count = raw._n as number;
-      if (count === 0) return [];
-
-      const chapterTasks = Array.from({ length: count }, (_, i) =>
-        () => scriptRead(scriptUrl, `${courseId}__${i}`)
-      );
-      const chapterDatas = await batchParallel(chapterTasks, READ_BATCH_SIZE);
-
-      // Retry failed reads
-      for (let i = 0; i < count; i++) {
-        if (!chapterDatas[i]) {
-          await new Promise(r => setTimeout(r, RETRY_DELAY));
-          chapterDatas[i] = await scriptRead(scriptUrl, `${courseId}__${i}`);
-        }
-      }
-
-      // Handle partitioned chapters
-      const partTasks: { chapterIdx: number; key: string }[] = [];
-      for (let i = 0; i < count; i++) {
-        const chData = chapterDatas[i];
-        if (chData?._p !== undefined) {
-          for (let p = 0; p < chData._p; p++) {
-            partTasks.push({ chapterIdx: i, key: `${courseId}__${i}__${p}` });
-          }
-        }
-      }
-
-      const partResults = await batchParallel(
-        partTasks.map(t => () => scriptRead(scriptUrl, t.key)),
-        READ_BATCH_SIZE
-      );
-
-      const partsByChapter: Record<number, any[]> = {};
-      for (let idx = 0; idx < partTasks.length; idx++) {
-        const { chapterIdx } = partTasks[idx];
-        if (!partsByChapter[chapterIdx]) partsByChapter[chapterIdx] = [];
-        partsByChapter[chapterIdx].push(partResults[idx]);
-      }
-
-      const result: any[] = [];
-      for (let i = 0; i < count; i++) {
-        const chData = chapterDatas[i];
-        if (!chData) continue;
-
-        if (chData._p !== undefined) {
-          const parts = partsByChapter[i] || [];
-          const allLessons: any[] = [];
-          let chapterMeta: any = null;
-          for (const partData of parts) {
-            if (Array.isArray(partData) && partData[0]) {
-              if (!chapterMeta) chapterMeta = { id: partData[0].id, title: partData[0].title };
-              allLessons.push(...(partData[0].lessons || []));
-            }
-          }
-          if (chapterMeta) result.push({ ...chapterMeta, lessons: allLessons });
-        } else if (Array.isArray(chData) && chData[0]) {
-          result.push(chData[0]);
-        }
-      }
-      return result;
-    }
-
-    // Direct array (small course)
-    if (Array.isArray(raw)) return raw;
-
-    return null;
-  } catch {
-    return null;
-  }
-}
+import type { LessonRow } from '@/lib/types';
 
 // Parse "MM:SS" duration to seconds
 function parseDurationToSeconds(duration: string): number {
@@ -155,6 +16,39 @@ function parseDurationToSeconds(duration: string): number {
     return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
   }
   return parseInt(duration, 10) || 0;
+}
+
+/**
+ * Map access_tier DB value to display MemberLevel.
+ */
+function accessTierToLevel(tier: string | undefined): string {
+  switch (tier) {
+    case 'vip': return 'VIP';
+    case 'premium': return 'Premium';
+    default: return 'Free';
+  }
+}
+
+/**
+ * Convert normalized sections+lessons to the legacy chapter format
+ * that the frontend expects.
+ */
+function sectionsToChapterFormat(sections: Array<{ id: string; title: string; lessons: LessonRow[] }>) {
+  return sections.map(sec => ({
+    id: sec.id,
+    title: sec.title,
+    lessons: sec.lessons.map(ls => ({
+      id: ls.id,
+      title: ls.title,
+      duration: ls.duration || '',
+      accessTier: (ls as any).access_tier || 'free',
+      requiredLevel: accessTierToLevel((ls as any).access_tier),
+      lessonType: (ls as any).lesson_type || 'video',
+      directPlayUrl: ls.direct_play_url || '',
+      isPreview: ls.is_preview || false,
+      thumbnail: '',
+    })),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -169,73 +63,41 @@ export async function GET(
     const { courseId } = params;
     if (!courseId) return NextResponse.json({ success: false, error: 'Missing courseId' }, { status: 400 });
 
-    // 1. Try Supabase (source of truth)
-    const chapters = await getChaptersByCourse(courseId);
-    if (chapters && chapters.length > 0) {
+    // 1. Try normalized tables (source of truth)
+    const sections = await getSectionsByCourse(courseId);
+    if (sections && sections.length > 0) {
+      const chapters = sectionsToChapterFormat(sections);
       return NextResponse.json({
         success: true,
         chapters,
         complete: true,
         expectedChapters: chapters.length,
         loadedChapters: chapters.length,
+        source: 'normalized',
       });
     }
 
-    // 2. Fallback: read from GAS (legacy data migration)
-    const gasChapters = await readFromGAS(courseId);
-    if (gasChapters && gasChapters.length > 0) {
-      // Migrate to Supabase in background
-      let totalLessons = 0;
-      let totalDuration = 0;
-      for (const ch of gasChapters) {
-        const lessons = ch.lessons || [];
-        totalLessons += lessons.length;
-        for (const ls of lessons) {
-          totalDuration += parseDurationToSeconds(ls.duration || '');
-        }
-      }
-      saveChapters(courseId, gasChapters, totalLessons, totalDuration).catch(() => {});
-
-      // Also update the courses table
-      const supabase2 = getSupabaseAdmin();
-      Promise.resolve(
-        supabase2
-          .from('courses')
-          .update({ lessons_count: totalLessons, duration: totalDuration, updated_at: new Date().toISOString() })
-          .eq('id', courseId)
-      ).catch(() => {});
+    // 2. Fallback: try legacy JSONB chapters table
+    const jsonbChapters = await getChaptersByCourse(courseId);
+    if (jsonbChapters && jsonbChapters.length > 0) {
+      // Migrate to normalized tables in background
+      migrateJsonbToNormalized(courseId, jsonbChapters).catch(() => {});
 
       return NextResponse.json({
         success: true,
-        chapters: gasChapters,
+        chapters: jsonbChapters,
         complete: true,
-        expectedChapters: gasChapters.length,
-        loadedChapters: gasChapters.length,
+        expectedChapters: jsonbChapters.length,
+        loadedChapters: jsonbChapters.length,
+        source: 'jsonb_legacy',
       });
     }
 
-    // 3. Fallback: use hardcoded fallback data
+    // 3. Fallback: use hardcoded fallback data (seed data)
     const fallbackChapters = FALLBACK_CHAPTERS[courseId];
     if (fallbackChapters && fallbackChapters.length > 0) {
-      // Migrate to Supabase in background
-      let totalLessons = 0;
-      let totalDuration = 0;
-      for (const ch of fallbackChapters) {
-        const lessons = ch.lessons || [];
-        totalLessons += lessons.length;
-        for (const ls of lessons) {
-          totalDuration += parseDurationToSeconds(ls.duration || '');
-        }
-      }
-      saveChapters(courseId, fallbackChapters, totalLessons, totalDuration).catch(() => {});
-
-      const supabase3 = getSupabaseAdmin();
-      Promise.resolve(
-        supabase3
-          .from('courses')
-          .update({ lessons_count: totalLessons, duration: totalDuration, updated_at: new Date().toISOString() })
-          .eq('id', courseId)
-      ).catch(() => {});
+      // Migrate to normalized tables in background
+      migrateJsonbToNormalized(courseId, fallbackChapters).catch(() => {});
 
       return NextResponse.json({
         success: true,
@@ -243,6 +105,7 @@ export async function GET(
         complete: true,
         expectedChapters: fallbackChapters.length,
         loadedChapters: fallbackChapters.length,
+        source: 'fallback',
       });
     }
 
@@ -276,41 +139,80 @@ export async function POST(
       }
     }
 
-    // Calculate stats
+    // Save to normalized tables (source of truth)
+    const supabase = getSupabaseAdmin();
+    const now = new Date().toISOString();
     let totalLessons = 0;
     let totalDuration = 0;
-    for (const ch of chapters) {
+
+    // Delete existing sections and lessons for this course
+    await supabase.from('lessons').delete().eq('course_id', courseId);
+    await supabase.from('course_sections').delete().eq('course_id', courseId);
+
+    // Insert sections and lessons
+    for (let sIdx = 0; sIdx < chapters.length; sIdx++) {
+      const ch = chapters[sIdx];
+
+      const { data: section } = await supabase
+        .from('course_sections')
+        .insert({
+          course_id: courseId,
+          title: ch.title || `Phần ${sIdx + 1}`,
+          description: '',
+          sort_order: sIdx,
+          created_at: now,
+          updated_at: now,
+        })
+        .select('id')
+        .single();
+
+      if (!section) continue;
+
       const lessons = ch.lessons || [];
-      totalLessons += lessons.length;
-      for (const ls of lessons) {
-        totalDuration += parseDurationToSeconds(ls.duration || '');
+      for (let lIdx = 0; lIdx < lessons.length; lIdx++) {
+        const ls = lessons[lIdx];
+        const durationSecs = parseDurationToSeconds(ls.duration || '');
+        totalLessons++;
+        totalDuration += durationSecs;
+
+        // Map requiredLevel to access_tier for backward compat
+        let accessTier = ls.accessTier || 'free';
+        if (!ls.accessTier && ls.requiredLevel) {
+          accessTier = ls.requiredLevel === 'VIP' ? 'vip' : ls.requiredLevel === 'Premium' ? 'premium' : 'free';
+        }
+        if (!ls.accessTier && ls.isPreview) {
+          accessTier = 'free';
+        }
+
+        await supabase.from('lessons').insert({
+          course_id: courseId,
+          section_id: section.id,
+          chapter_id: section.id,
+          title: ls.title || `Bài ${lIdx + 1}`,
+          description: '',
+          duration: ls.duration || '00:00',
+          duration_seconds: durationSecs,
+          video_url: '',
+          direct_play_url: ls.directPlayUrl || '',
+          is_preview: ls.isPreview || accessTier === 'free',
+          access_tier: accessTier,
+          lesson_type: ls.lessonType || 'video',
+          sort_order: lIdx,
+          created_at: now,
+          updated_at: now,
+        });
       }
     }
 
-    // Save to Supabase (source of truth)
-    const ok = await saveChapters(courseId, chapters, totalLessons, totalDuration);
-    if (!ok) {
-      return NextResponse.json({ success: false, error: 'Lưu thất bại' }, { status: 500 });
-    }
-
-    // Also update the courses table with lessons_count and duration
-    const supabase = getSupabaseAdmin();
-    Promise.resolve(
-      supabase
-        .from('courses')
-        .update({
-          lessons_count: totalLessons,
-          duration: totalDuration,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', courseId)
-    ).catch(() => {});
-
-    // Background sync to GAS (optional, for legacy compatibility)
-    const scriptUrl = getScriptUrl();
-    if (scriptUrl) {
-      syncChaptersToGAS(scriptUrl, courseId, chapters).catch(() => {});
-    }
+    // Update courses table with stats
+    await supabase
+      .from('courses')
+      .update({
+        lessons_count: totalLessons,
+        duration: totalDuration,
+        updated_at: now,
+      })
+      .eq('id', courseId);
 
     return NextResponse.json({
       success: true,
@@ -325,23 +227,84 @@ export async function POST(
   }
 }
 
-/** Background sync chapters to GAS (fire-and-forget) */
-async function syncChaptersToGAS(scriptUrl: string, courseId: string, chapters: any[]): Promise<void> {
+/**
+ * Background migration: convert JSONB/fallback chapter data to normalized tables.
+ * This runs once per course when data is found in old format but not in normalized tables.
+ */
+async function migrateJsonbToNormalized(courseId: string, chapters: any[]): Promise<void> {
   try {
-    // Save stats
+    const supabase = getSupabaseAdmin();
+    const now = new Date().toISOString();
     let totalLessons = 0;
     let totalDuration = 0;
-    for (const ch of chapters) {
-      totalLessons += (ch.lessons || []).length;
-      for (const ls of (ch.lessons || [])) {
-        totalDuration += parseDurationToSeconds(ls.duration || '');
+
+    for (let sIdx = 0; sIdx < chapters.length; sIdx++) {
+      const ch = chapters[sIdx];
+
+      const { data: section } = await supabase
+        .from('course_sections')
+        .insert({
+          course_id: courseId,
+          title: ch.title || `Phần ${sIdx + 1}`,
+          description: '',
+          sort_order: sIdx,
+          created_at: now,
+          updated_at: now,
+        })
+        .select('id')
+        .single();
+
+      if (!section) continue;
+
+      const lessons = ch.lessons || [];
+      if (lessons.length > 0) {
+        const lessonRows = lessons.map((ls: any, lIdx: number) => {
+          const durationSecs = parseDurationToSeconds(ls.duration || '');
+          totalLessons++;
+          totalDuration += durationSecs;
+          // Map requiredLevel to access_tier
+          let accessTier = ls.accessTier || 'free';
+          if (!ls.accessTier && ls.requiredLevel) {
+            accessTier = ls.requiredLevel === 'VIP' ? 'vip' : ls.requiredLevel === 'Premium' ? 'premium' : 'free';
+          }
+          if (!ls.accessTier && ls.isPreview) {
+            accessTier = 'free';
+          }
+          return {
+            course_id: courseId,
+            section_id: section.id,
+            chapter_id: section.id,
+            title: ls.title || `Bài ${lIdx + 1}`,
+            description: '',
+            duration: ls.duration || '00:00',
+            duration_seconds: durationSecs,
+            video_url: '',
+            direct_play_url: ls.directPlayUrl || '',
+            is_preview: ls.isPreview || accessTier === 'free',
+            access_tier: accessTier,
+            lesson_type: ls.lessonType || 'video',
+            sort_order: lIdx,
+            created_at: now,
+            updated_at: now,
+          };
+        });
+
+        await supabase.from('lessons').insert(lessonRows);
       }
     }
-    const statsJson = JSON.stringify({ lessonsCount: totalLessons, duration: totalDuration, chaptersCount: chapters.length });
 
-    const qs = new URLSearchParams({ action: 'saveChapters', courseId: `${courseId}_stats`, chaptersJson: statsJson });
-    await fetchWithTimeout(`${scriptUrl}?${qs.toString()}`, { redirect: 'follow' }, 10000);
-  } catch {
-    // Ignore sync failures
+    // Update courses table with stats
+    await supabase
+      .from('courses')
+      .update({
+        lessons_count: totalLessons,
+        duration: totalDuration,
+        updated_at: now,
+      })
+      .eq('id', courseId);
+
+    console.log(`[Chapters] Migrated course ${courseId} to normalized tables: ${chapters.length} sections, ${totalLessons} lessons`);
+  } catch (err) {
+    console.error(`[Chapters] Migration failed for course ${courseId}:`, err);
   }
 }

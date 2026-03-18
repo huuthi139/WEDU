@@ -5,12 +5,15 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode,
 export type MemberLevel = 'Free' | 'Premium' | 'VIP';
 export type UserRole = 'admin' | 'sub_admin' | 'instructor' | 'student' | 'user';
 
+export type SystemRole = 'admin' | 'instructor' | 'student';
+
 export interface User {
   id: string;
   name: string;
   email: string;
   phone?: string;
   role: UserRole;
+  systemRole: SystemRole;
   memberLevel: MemberLevel;
   avatarUrl?: string | null;
 }
@@ -59,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email: u.email || '',
           phone: u.phone || '',
           role: u.role as UserRole || 'user',
+          systemRole: (u.systemRole || 'student') as SystemRole,
           memberLevel: (u.memberLevel || 'Free') as MemberLevel,
           avatarUrl: u.avatarUrl || null,
         });

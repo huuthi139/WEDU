@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
 import { updateProgress } from '@/lib/supabase/enrollments';
 import { sendCourseCompletionEmail } from '@/lib/email/send';
-import { syncProgressToSheet } from '@/lib/sync/sheetSync';
 
 export async function POST(req: NextRequest) {
   const session = await getSession();
@@ -26,9 +25,6 @@ export async function POST(req: NextRequest) {
       certificateLink
     ).catch(() => {});
   }
-
-  // Background sync to Google Sheet
-  syncProgressToSheet(session.email, courseId, lessonId || '', progress ?? 0);
 
   return NextResponse.json({ success: true });
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useCourses } from '@/contexts/CoursesContext';
-import type { MemberLevel } from '@/lib/mockData';
+import type { MemberLevel } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
@@ -434,11 +434,14 @@ export default function CourseContentPage({ params }: { params: { id: string } }
 
   const handleAddLesson = () => {
     if (modal.kind !== 'addLesson' || !lessonTitle.trim()) return;
+    const accessTier = lessonLevel === 'VIP' ? 'vip' : lessonLevel === 'Premium' ? 'premium' : 'free';
     const newLesson: Lesson = {
       id: `ls-${Date.now()}`,
       title: lessonTitle.trim(),
       duration: lessonDuration.trim(),
       requiredLevel: lessonLevel,
+      accessTier: accessTier as any,
+      lessonType: 'video',
       directPlayUrl: lessonDirectPlayUrl.trim(),
       thumbnail: lessonThumbnail.trim(),
     };
@@ -459,7 +462,7 @@ export default function CourseContentPage({ params }: { params: { id: string } }
               ...ch,
               lessons: ch.lessons.map((ls) =>
                 ls.id === modal.lessonId
-                  ? { ...ls, title: lessonTitle.trim(), duration: lessonDuration.trim(), requiredLevel: lessonLevel, directPlayUrl: lessonDirectPlayUrl.trim(), thumbnail: lessonThumbnail.trim() }
+                  ? { ...ls, title: lessonTitle.trim(), duration: lessonDuration.trim(), requiredLevel: lessonLevel, accessTier: (lessonLevel === 'VIP' ? 'vip' : lessonLevel === 'Premium' ? 'premium' : 'free') as any, lessonType: ls.lessonType || 'video', directPlayUrl: lessonDirectPlayUrl.trim(), thumbnail: lessonThumbnail.trim() }
                   : ls
               ),
             }

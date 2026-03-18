@@ -2,15 +2,16 @@
  * Centralized configuration - All secrets from environment variables.
  * NEVER hardcode secrets in source code.
  *
- * Primary data source: Supabase
- * Google Sheet: optional, used for backup sync only
+ * Primary data source for courses: Google Sheets
+ * Supabase: used for users, orders, enrollments, progress, reviews
+ * Google Apps Script: legacy chapter data migration
  */
 
-// Google Sheet ID - optional (only for backup sync)
+// Google Sheet ID - PRIMARY source for course data
 export function getSheetId(): string {
-  const id = process.env.GOOGLE_SHEET_ID;
+  const id = process.env.GOOGLE_SHEET_ID || process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID;
   if (!id) {
-    throw new Error('[Config] GOOGLE_SHEET_ID not set');
+    throw new Error('[Config] GOOGLE_SHEET_ID not set - required for course data');
   }
   return id;
 }
@@ -37,7 +38,11 @@ export function getSheetCsvUrl(sheetName: string): string {
 // Validate required env vars on startup
 export function validateEnv(): void {
   const required = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
-  const optional = ['GOOGLE_SCRIPT_URL', 'GOOGLE_SHEET_ID'];
+  const optional = ['GOOGLE_SCRIPT_URL'];
+  // GOOGLE_SHEET_ID is now important for course data (primary source)
+  if (!process.env.GOOGLE_SHEET_ID && !process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID) {
+    console.warn('[Config] GOOGLE_SHEET_ID not set — courses will use fallback data');
+  }
   const missing = required.filter(key => !process.env[key]);
   if (missing.length > 0) {
     console.error(`[Config] Missing required environment variables: ${missing.join(', ')}`);

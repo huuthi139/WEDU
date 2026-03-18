@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
-import type { Course, MemberLevel } from '@/lib/mockData';
+import type { Course } from '@/lib/types';
 
 interface CoursesContextType {
   courses: Course[];

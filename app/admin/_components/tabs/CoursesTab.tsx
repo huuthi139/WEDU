@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import type { Course } from '@/lib/mockData';
+import type { Course } from '@/lib/types';
 import { formatPrice, formatDuration } from '@/lib/utils';
 
 interface CoursesTabProps {

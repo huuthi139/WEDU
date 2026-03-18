@@ -12,14 +12,15 @@ import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/providers/ToastProvider';
 import { useEnrollment } from '@/contexts/EnrollmentContext';
+import { useCourseAccess } from '@/contexts/CourseAccessContext';
 import Image from 'next/image';
 
-import type { MemberLevel } from '@/lib/mockData';
+import type { MemberLevel, AccessTier } from '@/lib/types';
+import { meetsAccessTier, accessTierLabel } from '@/lib/types';
 import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
+import { canAccessLesson, isStaff, getLessonCTALabel } from '@/lib/access-control';
 
 const defaultChapters: Chapter[] = [];
-
-const LEVEL_ORDER: Record<MemberLevel, number> = { Free: 0, Premium: 1, VIP: 2 };
 
 interface Review {
   id: string;
@@ -61,8 +62,8 @@ export default function CourseDetail() {
   const { user } = useAuth();
   const { showToast } = useToast();
   const { isEnrolled, enrollCourse } = useEnrollment();
+  const { getAccessTier, getAccess } = useCourseAccess();
   const { courses, isLoading } = useCourses();
-  const userLevel: MemberLevel = user?.memberLevel || 'Free';
   const [activeTab, setActiveTab] = useState<'overview' | 'curriculum' | 'reviews'>('overview');
   const [expandedSections, setExpandedSections] = useState<number[]>([0]);
   const [previewLesson, setPreviewLesson] = useState<{ name: string; sectionTitle: string; directPlayUrl: string } | null>(null);
@@ -424,7 +425,17 @@ export default function CourseDetail() {
                     {expandedSections.includes(sectionIndex) && (
                       <div className="divide-y divide-white/5">
                         {section.lessons.map((lesson, lessonIndex) => {
-                          const isLocked = LEVEL_ORDER[lesson.requiredLevel] > LEVEL_ORDER[userLevel];
+                          // Per-course access check
+                          const courseAccess = user ? getAccess(course.id) : null;
+                          const userProfile = user ? {
+                            id: user.id || '', email: user.email, name: user.name, phone: '',
+                            role: user.role as any, systemRole: user.systemRole || 'student' as any,
+                            memberLevel: user.memberLevel as any, avatarUrl: null,
+                          } : null;
+                          const hasLessonAccess = canAccessLesson(userProfile, courseAccess, { accessTier: lesson.accessTier });
+                          const isFreeLesson = lesson.accessTier === 'free';
+                          const canPreview = isFreeLesson || hasLessonAccess;
+                          const isLocked = !isFreeLesson && !hasLessonAccess;
                           return (
                             <div
                               key={lessonIndex}
@@ -434,9 +445,14 @@ export default function CourseDetail() {
                             >
                               <div className="flex items-center gap-3 flex-1 min-w-0">
                                 {isLocked ? (
-                                  <svg className="w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                  </svg>
+                                  <div
+                                    className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 bg-white/5 text-gray-600 cursor-not-allowed"
+                                    title={getLessonCTALabel(lesson.accessTier)}
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                    </svg>
+                                  </div>
                                 ) : (
                                   <button
                                     onClick={() => setPreviewLesson({ name: lesson.title, sectionTitle: section.title, directPlayUrl: lesson.directPlayUrl })}
@@ -446,7 +462,7 @@ export default function CourseDetail() {
                                         ? 'bg-teal/20 hover:bg-teal/40 text-teal cursor-pointer'
                                         : 'bg-white/5 text-gray-600 cursor-not-allowed'
                                     }`}
-                                    title={lesson.directPlayUrl ? 'Xem trước' : 'Chưa có video'}
+                                    title={lesson.directPlayUrl ? (isFreeLesson ? 'Xem miễn phí' : 'Xem bài học') : 'Chưa có video'}
                                   >
                                     <svg className="w-3.5 h-3.5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
                                       <path d="M8 5v14l11-7z" />
@@ -454,21 +470,16 @@ export default function CourseDetail() {
                                   </button>
                                 )}
                                 <span className="text-gray-300 text-sm truncate">{lesson.title}</span>
-                                {/* Level badge - always show */}
+                                {/* Access tier badge */}
                                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex-shrink-0 ${
-                                  lesson.requiredLevel === 'VIP'
+                                  lesson.accessTier === 'vip'
                                     ? 'bg-gradient-to-r from-gold/10 to-amber-500/10 text-gold border border-gold/30'
-                                    : lesson.requiredLevel === 'Premium'
+                                    : lesson.accessTier === 'premium'
                                       ? 'bg-teal/10 text-teal border border-teal/20'
-                                      : 'bg-white/5 text-gray-400 border border-white/10'
+                                      : 'bg-green-500/10 text-green-400 border border-green-500/20'
                                 }`}>
-                                  {lesson.requiredLevel}
+                                  {lesson.accessTier === 'free' ? 'FREE' : accessTierLabel(lesson.accessTier)}
                                 </span>
-                                {lesson.requiredLevel === 'Free' && (
-                                  <span className="text-[10px] bg-green-500/10 text-green-400 border border-green-500/20 px-2 py-0.5 rounded-full font-bold flex-shrink-0">
-                                    FREE
-                                  </span>
-                                )}
                               </div>
                               <span className="text-sm text-gray-500 flex-shrink-0 ml-3">{lesson.duration}</span>
                             </div>
