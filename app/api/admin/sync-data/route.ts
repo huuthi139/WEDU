@@ -116,17 +116,37 @@ async function syncOrders(sheetId: string): Promise<{ added: number; skipped: nu
     const total = parseFloat((row['Tổng tiền'] || row['Tong tien'] || '0').replace(/[^0-9.-]/g, '')) || 0;
     const createdAt = row['Thời gian'] || row['Thoi gian'] || new Date().toISOString();
 
+    const statusRaw = row['Trạng thái'] || row['Trang thai'] || 'Đang chờ xử lý';
+    const transactionCode = row['Mã giao dịch'] || row['Ma giao dich'] || row['Mã GD'] || '';
+
+    // Lookup user_id from email
+    let userId: string | null = null;
+    const { data: userLookup } = await supabase
+      .from('users').select('id').eq('email', email).limit(1).single();
+    if (userLookup) userId = userLookup.id;
+
+    // Map Vietnamese status to payment_status
+    const sLower = statusRaw.toLowerCase();
+    const paymentStatus = sLower.includes('hoàn tất') || sLower.includes('thành công') || sLower.includes('completed')
+      ? 'completed'
+      : sLower.includes('thất bại') || sLower.includes('hủy') || sLower.includes('failed')
+      ? 'failed'
+      : 'pending';
+
     const { error } = await supabase.from('orders').insert({
       order_id: orderId,
+      user_id: userId,
       user_email: email,
       user_name: row['Tên khách hàng'] || row['Ten khach hang'] || '',
       user_phone: row['Số điện thoại'] || row['So dien thoai'] || row['SĐT'] || '',
       course_names: row['Khóa học'] || row['Khoa hoc'] || '',
       course_ids: row['Mã khóa học'] || row['Ma khoa hoc'] || '',
       total,
+      currency: 'VND',
       payment_method: row['Phương thức thanh toán'] || row['Phuong thuc thanh toan'] || row['PTTT'] || '',
-      status: row['Trạng thái'] || row['Trang thai'] || 'Đang chờ xử lý',
-      note: row['Mã giao dịch'] || row['Ma giao dich'] || '',
+      status: statusRaw,
+      payment_status: paymentStatus,
+      transaction_code: transactionCode,
       created_at: parseDate(createdAt),
     });
 
@@ -181,7 +201,35 @@ async function syncEnrollments(sheetId: string): Promise<{ added: number; skippe
     });
 
     if (error) { stats.errors++; console.error('[SyncEnrollments] Insert error:', error.message); }
-    else { stats.added++; }
+    else {
+      stats.added++;
+
+      // Also create course_access record if user exists in users table
+      const { data: userLookup } = await supabase
+        .from('users').select('id').eq('email', email).limit(1).single();
+      if (userLookup) {
+        const { data: existingAccess } = await supabase
+          .from('course_access')
+          .select('id')
+          .eq('user_id', userLookup.id)
+          .eq('course_id', courseId)
+          .limit(1)
+          .single();
+
+        if (!existingAccess) {
+          await supabase.from('course_access').insert({
+            user_id: userLookup.id,
+            course_id: courseId,
+            access_tier: 'free',
+            source: 'system',
+            status: 'active',
+            activated_at: parseDate(enrolledAt),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+      }
+    }
   }
 
   return stats;
@@ -279,6 +327,8 @@ async function syncCourses(sheetId?: string): Promise<{ added: number; updated: 
       badge: course.badge || null,
       member_level: course.memberLevel || 'Free',
       is_active: true,
+      status: 'published',
+      visibility: 'public',
       updated_at: new Date().toISOString(),
     };
 

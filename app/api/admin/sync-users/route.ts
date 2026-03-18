@@ -85,14 +85,23 @@ export async function POST(request: NextRequest) {
   // Import to Supabase
   try {
     const { syncSheetUsersToSupabase } = await import('@/lib/supabase/users');
-    const mapped = sheetUsers.map((u) => ({
-      email: u.Email || u.email || '',
-      name: u['Tên'] || u.name || '',
-      phone: u.Phone || u.phone || '',
-      role: u.Role || u.role || 'user',
-      memberLevel: u.Level || u.memberLevel || 'Free',
-      passwordHash: u.Password || u.passwordHash || '',
-    }));
+    const mapped = sheetUsers.map((u) => {
+      const role = u.Role || u.role || 'user';
+      const r = role.toLowerCase().trim();
+      const systemRole = (r === 'admin' || r === 'sub_admin') ? 'admin'
+        : r === 'instructor' ? 'instructor'
+        : 'student';
+      return {
+        email: u.Email || u.email || '',
+        name: u['Tên'] || u.name || '',
+        phone: u.Phone || u.phone || '',
+        role,
+        systemRole,
+        memberLevel: u.Level || u.memberLevel || 'Free',
+        passwordHash: u.Password || u.passwordHash || '',
+        status: 'active',
+      };
+    });
 
     const stats = await syncSheetUsersToSupabase(mapped);
 

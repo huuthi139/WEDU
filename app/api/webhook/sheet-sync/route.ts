@@ -101,8 +101,10 @@ async function handleImportUsersFromSheet() {
       name: u['Tên'] || u.name || '',
       phone: u.Phone || u.phone || '',
       role: mapRole(u.Role || u.role || ''),
+      systemRole: mapSystemRole(u.Role || u.role || ''),
       memberLevel: u.Level || u.memberLevel || 'Free',
       passwordHash: u.Password || u.passwordHash || '',
+      status: 'active',
     }));
 
     const stats = await syncSheetUsersToSupabase(mapped);
@@ -145,4 +147,11 @@ function mapRole(role: string): string {
   if (r === 'sub_admin' || r === 'sub admin') return 'sub_admin';
   if (r === 'instructor' || r === 'giảng viên') return 'instructor';
   return 'user';
+}
+
+function mapSystemRole(role: string): string {
+  const r = role.toLowerCase().trim();
+  if (r === 'admin' || r === 'administrator' || r.includes('quản trị') || r === 'qtv' || r === 'sub_admin' || r === 'sub admin') return 'admin';
+  if (r === 'instructor' || r === 'giảng viên') return 'instructor';
+  return 'student';
 }
