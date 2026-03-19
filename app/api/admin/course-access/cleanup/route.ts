@@ -227,7 +227,7 @@ export async function POST(request: NextRequest) {
     before: countBefore,
     after: countAfter || 0,
     deleted: (countBefore || 0) - (countAfter || 0),
-    backup_location: 'audit_logs (action_type: course_access_bulk_cleanup)',
+    backup_location: 'audit_logs (action: course_access_bulk_cleanup)',
     safety: {
       users_affected: false,
       audit_logs_affected: false,
