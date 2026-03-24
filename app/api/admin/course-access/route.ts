@@ -153,6 +153,49 @@ export async function PATCH(request: NextRequest) {
   }
 
   const id = body.id as string;
+  const revokeUserId = body.user_id as string;
+  const revokeCourseId = body.course_id as string;
+  const action = body.action as string;
+
+  // Support revoke by user_id + course_id
+  if (action === 'revoke' && revokeUserId && revokeCourseId) {
+    const { data: record } = await supabase
+      .from('course_access')
+      .select('id')
+      .eq('user_id', revokeUserId)
+      .eq('course_id', revokeCourseId)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle();
+
+    if (!record) {
+      return NextResponse.json({ success: false, error: 'Record not found' }, { status: 404 });
+    }
+
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from('course_access')
+      .update({ status: 'cancelled', updated_at: now })
+      .eq('id', record.id);
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    writeAuditLog({
+      actorUserId,
+      actionType: 'course_access_revoke',
+      targetTable: 'course_access',
+      targetId: record.id,
+      entityKey: `${revokeUserId}::${revokeCourseId}`,
+      oldValue: { status: 'active' },
+      newValue: { status: 'cancelled' },
+      status: 'success',
+    }).catch(() => {});
+
+    return NextResponse.json({ success: true });
+  }
+
   if (!id) {
     return NextResponse.json({ success: false, error: 'id is required' }, { status: 400 });
   }
@@ -309,6 +352,36 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Auto-upgrade member_level when granting course access
+    // Free + any course → Premium, Premium + vip tier course → VIP
+    const LEVEL_RANK: Record<string, number> = { Free: 0, Premium: 1, VIP: 2 };
+    const currentLevel = user.member_level || 'Free';
+    const currentRank = LEVEL_RANK[currentLevel] ?? 0;
+
+    // Look up course's member_level (tier) to determine upgrade
+    const { data: course } = await supabase
+      .from('courses')
+      .select('member_level')
+      .eq('id', courseId)
+      .single();
+
+    let newLevel = currentLevel;
+    if (currentRank === 0) {
+      // Free user + any course → Premium
+      newLevel = 'Premium';
+    }
+    if (course?.member_level === 'VIP' || accessTier === 'vip') {
+      // Adding VIP tier course → VIP
+      newLevel = 'VIP';
+    }
+
+    if (newLevel !== currentLevel) {
+      await supabase
+        .from('users')
+        .update({ member_level: newLevel, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+    }
+
     writeAuditLog({
       actorUserId,
       actionType: 'course_access_upsert',
@@ -316,11 +389,11 @@ export async function POST(request: NextRequest) {
       targetId: `${userId}::${courseId}`,
       entityKey: `${userId}::${courseId}`,
       oldValue: undefined,
-      newValue: { access_tier: accessTier, status: 'active', source: 'manual' },
+      newValue: { access_tier: accessTier, status: 'active', source: 'manual', member_level: newLevel },
       status: 'success',
     }).catch(() => {});
 
-    return NextResponse.json({ success: true, access_tier: accessTier });
+    return NextResponse.json({ success: true, access_tier: accessTier, member_level: newLevel });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ success: false, error: msg }, { status: 500 });

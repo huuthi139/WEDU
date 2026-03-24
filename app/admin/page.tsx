@@ -41,11 +41,15 @@ interface Student {
 
 // User row from Supabase API
 interface SheetUser {
+  id: string;
   Email: string;
   Role: string;
   'Tên': string;
   Level: string;
   Phone: string;
+  enrolledCourses?: { courseId: string; courseName: string }[];
+  joinDate?: string;
+  status?: string;
 }
 
 /* ============================================================
@@ -205,16 +209,20 @@ export default function AdminDashboard() {
 
   /** Map raw user rows to Student objects */
   const mapUsersToStudents = useCallback((users: SheetUser[]): Student[] => {
-    return users.map((u: SheetUser, i: number) => ({
-      id: `user-${i + 1}`,
+    return users.map((u: SheetUser) => ({
+      id: u.id || '',
       name: u['Tên'] || u.Email?.split('@')[0] || 'N/A',
       email: u.Email || '',
       phone: u.Phone || '',
       memberLevel: (['Free', 'Premium', 'VIP'].includes(u.Level) ? u.Level : 'Free') as MemberLevel,
-      enrolledCourses: [],
+      enrolledCourses: (u.enrolledCourses || []).map(ec => ({
+        courseId: ec.courseId,
+        courseName: ec.courseName,
+        progress: 0,
+      })),
       totalSpent: 0,
-      joinDate: '-',
-      status: 'Active' as const,
+      joinDate: u.joinDate ? new Date(u.joinDate).toLocaleDateString('vi-VN') : '-',
+      status: (u.status === 'inactive' || u.status === 'banned') ? 'Inactive' as const : 'Active' as const,
       lastActive: '-',
     }));
   }, []);
@@ -396,12 +404,30 @@ export default function AdminDashboard() {
     : students.filter(s => s.memberLevel === studentFilter);
 
   /* ------- Student course management ------- */
-  const handleRemoveCourse = (studentId: string, courseId: string) => {
-    setStudents(prev => prev.map(s =>
-      s.id === studentId
-        ? { ...s, enrolledCourses: s.enrolledCourses.filter(ec => ec.courseId !== courseId) }
-        : s
-    ));
+  const handleRemoveCourse = async (studentId: string, courseId: string) => {
+    try {
+      // Find the course_access record and cancel it via API
+      const res = await fetch('/api/admin/course-access', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          user_id: studentId,
+          course_id: courseId,
+          action: 'revoke',
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(`Lỗi xoá: ${data.error}`);
+        return;
+      }
+    } catch {
+      alert('Không thể xoá khóa học. Vui lòng thử lại.');
+      return;
+    }
+    // Refetch students from server to get fresh data
+    await fetchStudents();
   };
 
   const handleAddCourseToStudent = async (studentId: string, courseId: string) => {
@@ -412,6 +438,7 @@ export default function AdminDashboard() {
       const res = await fetch('/api/admin/course-access', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ user_id: studentId, course_id: courseId }),
       });
       const data = await res.json();
@@ -420,15 +447,9 @@ export default function AdminDashboard() {
         return;
       }
 
-      setStudents(prev => prev.map(s =>
-        s.id === studentId
-          ? {
-              ...s,
-              enrolledCourses: [...s.enrolledCourses, { courseId, courseName: course.title, progress: 0 }],
-            }
-          : s
-      ));
       setShowAddCourseModal(null);
+      // Refetch students from server to get fresh data (including updated member_level)
+      await fetchStudents();
     } catch (err) {
       alert('Không thể thêm khóa học. Vui lòng thử lại.');
     }
