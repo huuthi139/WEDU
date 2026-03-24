@@ -51,14 +51,18 @@ export async function getAllCourses(): Promise<SupabaseCourse[]> {
 
   // Build student count map from course_access
   const studentCountMap: Record<string, number> = {};
-  if (accessRes.data) {
-    for (const row of accessRes.data) {
-      const courseId = row.course_id;
-      if (courseId) {
-        studentCountMap[courseId] = (studentCountMap[courseId] || 0) + 1;
-      }
+  const accessRows = accessRes.data || [];
+  if (accessRes.error) {
+    console.warn('[Courses] course_access query error:', accessRes.error.message);
+  }
+  for (const row of accessRows) {
+    const courseId = row.course_id;
+    if (courseId) {
+      studentCountMap[courseId] = (studentCountMap[courseId] || 0) + 1;
     }
   }
+
+  console.log(`[Courses] course_access rows: ${accessRows.length}, studentCountMap:`, JSON.stringify(studentCountMap));
 
   const courses = (coursesRes.data || []) as SupabaseCourse[];
   for (const course of courses) {

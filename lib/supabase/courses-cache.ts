@@ -17,6 +17,16 @@ export function getCachedCourses(): { courses: any[] | null; fresh: boolean } {
   return { courses: null, fresh: false };
 }
 
+/** Debug: peek at cache state without TTL filtering */
+export function debugCacheState(): { courses: any[] | null; fresh: boolean; ageMs: number } {
+  const now = Date.now();
+  return {
+    courses: cachedCourses,
+    fresh: cachedCourses ? now - cacheTimestamp < CACHE_TTL_MS : false,
+    ageMs: cachedCourses ? now - cacheTimestamp : -1,
+  };
+}
+
 export function setCachedCourses(courses: any[]) {
   cachedCourses = courses;
   cacheTimestamp = Date.now();
