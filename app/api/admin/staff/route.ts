@@ -1,17 +1,26 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission, AuthError } from '@/lib/auth/guards';
-import { apiSuccess, ERR } from '@/lib/api/response';
 import { logger } from '@/lib/telemetry/logger';
+
+function authErrorResponse(error: unknown, fallbackMsg = 'Unauthorized') {
+  if (error instanceof AuthError) {
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: error.status },
+    );
+  }
+  return NextResponse.json(
+    { success: false, error: fallbackMsg },
+    { status: 401 },
+  );
+}
 
 /** GET - List all staff members */
 export async function GET() {
   try {
     await requirePermission('admin.staff.manage');
   } catch (error) {
-    if (error instanceof AuthError) {
-      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN('Chỉ admin mới có quyền quản lý nhân sự');
-    }
-    return ERR.UNAUTHORIZED();
+    return authErrorResponse(error, 'Chỉ admin mới có quyền quản lý nhân sự');
   }
 
   try {
@@ -28,10 +37,10 @@ export async function GET() {
       createdAt: u.created_at,
     }));
 
-    return apiSuccess({ staff });
+    return NextResponse.json({ success: true, data: { staff } });
   } catch (err) {
     logger.error('admin.staff.get', 'Failed to list staff', { error: err instanceof Error ? err.message : String(err) });
-    return ERR.INTERNAL('Không thể tải danh sách nhân sự');
+    return NextResponse.json({ success: false, error: 'Không thể tải danh sách nhân sự' }, { status: 500 });
   }
 }
 
@@ -41,10 +50,7 @@ export async function POST(request: NextRequest) {
   try {
     adminUser = await requirePermission('admin.staff.manage');
   } catch (error) {
-    if (error instanceof AuthError) {
-      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN('Chỉ admin mới có quyền quản lý nhân sự');
-    }
-    return ERR.UNAUTHORIZED();
+    return authErrorResponse(error, 'Chỉ admin mới có quyền quản lý nhân sự');
   }
 
   try {
@@ -53,27 +59,27 @@ export async function POST(request: NextRequest) {
     const newRole = typeof body.role === 'string' ? body.role.trim() : '';
 
     if (!email) {
-      return ERR.VALIDATION('Thiếu email');
+      return NextResponse.json({ success: false, error: 'Thiếu email' }, { status: 422 });
     }
 
     const validRoles = ['user', 'sub_admin', 'instructor'];
     if (!validRoles.includes(newRole)) {
-      return ERR.VALIDATION(`Role không hợp lệ. Chỉ chấp nhận: ${validRoles.join(', ')}`);
+      return NextResponse.json({ success: false, error: `Role không hợp lệ. Chỉ chấp nhận: ${validRoles.join(', ')}` }, { status: 422 });
     }
 
     // Cannot change own role
     if (adminUser.email.toLowerCase() === email) {
-      return ERR.VALIDATION('Không thể thay đổi quyền của chính mình');
+      return NextResponse.json({ success: false, error: 'Không thể thay đổi quyền của chính mình' }, { status: 422 });
     }
 
     const { getUserByEmail, updateUserProfile } = await import('@/lib/supabase/users');
     const targetUser = await getUserByEmail(email);
     if (!targetUser) {
-      return ERR.NOT_FOUND('Không tìm thấy người dùng');
+      return NextResponse.json({ success: false, error: 'Không tìm thấy người dùng' }, { status: 404 });
     }
 
     if (targetUser.role === 'admin') {
-      return ERR.FORBIDDEN('Không thể thay đổi quyền của admin chính');
+      return NextResponse.json({ success: false, error: 'Không thể thay đổi quyền của admin chính' }, { status: 403 });
     }
 
     await updateUserProfile(email, { role: newRole as 'user' | 'sub_admin' | 'instructor' });
@@ -85,15 +91,16 @@ export async function POST(request: NextRequest) {
       newRole,
     });
 
-    return apiSuccess({
+    return NextResponse.json({
+      success: true,
       message: `Đã cập nhật quyền của ${targetUser.name} thành ${newRole}`,
     });
   } catch (err) {
     if (err instanceof AuthError) {
-      return err.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN();
+      return authErrorResponse(err);
     }
     logger.error('admin.staff.update', 'Failed to update role', { error: err instanceof Error ? err.message : String(err) });
-    return ERR.INTERNAL();
+    return NextResponse.json({ success: false, error: 'Lỗi hệ thống' }, { status: 500 });
   }
 }
 
@@ -102,10 +109,7 @@ export async function PUT(request: NextRequest) {
   try {
     await requirePermission('admin.staff.manage');
   } catch (error) {
-    if (error instanceof AuthError) {
-      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN('Chỉ admin mới có quyền quản lý nhân sự');
-    }
-    return ERR.UNAUTHORIZED();
+    return authErrorResponse(error, 'Chỉ admin mới có quyền quản lý nhân sự');
   }
 
   try {
@@ -114,18 +118,18 @@ export async function PUT(request: NextRequest) {
     const role = typeof body.role === 'string' ? body.role.trim() : '';
 
     if (!email) {
-      return ERR.VALIDATION('Vui lòng nhập email');
+      return NextResponse.json({ success: false, error: 'Vui lòng nhập email' }, { status: 422 });
     }
 
     // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      return ERR.VALIDATION('Email không hợp lệ');
+      return NextResponse.json({ success: false, error: 'Email không hợp lệ' }, { status: 422 });
     }
 
     const validRoles = ['user', 'sub_admin', 'instructor'];
     if (!validRoles.includes(role)) {
-      return ERR.VALIDATION(`Quyền không hợp lệ. Chỉ chấp nhận: ${validRoles.join(', ')}`);
+      return NextResponse.json({ success: false, error: `Quyền không hợp lệ. Chỉ chấp nhận: ${validRoles.join(', ')}` }, { status: 422 });
     }
 
     const { getUserByEmail, updateUserProfile, createUserProfile } = await import('@/lib/supabase/users');
@@ -133,7 +137,7 @@ export async function PUT(request: NextRequest) {
 
     if (existingUser) {
       if (existingUser.role === 'admin') {
-        return ERR.FORBIDDEN('Không thể thay đổi quyền của admin chính');
+        return NextResponse.json({ success: false, error: 'Không thể thay đổi quyền của admin chính' }, { status: 403 });
       }
 
       // Update role of existing user
@@ -141,7 +145,8 @@ export async function PUT(request: NextRequest) {
 
       logger.info('admin.staff.add', 'Existing user role updated', { target: email, role });
 
-      return apiSuccess({
+      return NextResponse.json({
+        success: true,
         message: `Đã cập nhật quyền của ${existingUser.name || email} thành ${role === 'sub_admin' ? 'Admin phụ' : role === 'instructor' ? 'Giảng viên' : 'Học viên'}`,
         isNew: false,
       });
@@ -158,13 +163,14 @@ export async function PUT(request: NextRequest) {
 
       logger.info('admin.staff.add', 'New staff member created', { target: email, role });
 
-      return apiSuccess({
+      return NextResponse.json({
+        success: true,
         message: `Đã thêm nhân sự mới ${name} (${email}) với quyền ${role === 'sub_admin' ? 'Admin phụ' : role === 'instructor' ? 'Giảng viên' : 'Học viên'}`,
         isNew: true,
-      }, 201);
+      }, { status: 201 });
     }
   } catch (err) {
     logger.error('admin.staff.add', 'Failed to add staff', { error: err instanceof Error ? err.message : String(err) });
-    return ERR.INTERNAL('Không thể thêm nhân sự');
+    return NextResponse.json({ success: false, error: 'Không thể thêm nhân sự' }, { status: 500 });
   }
 }
