@@ -27,20 +27,45 @@ export interface SupabaseCourse {
 
 /**
  * Get all active courses from Supabase
+ * Computes enrollments_count from course_access (not the stale column in courses table)
  */
 export async function getAllCourses(): Promise<SupabaseCourse[]> {
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from('courses')
-    .select('*')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false });
 
-  if (error) {
-    console.error('[Supabase Courses] Failed to fetch:', error.message);
-    throw new Error(`Supabase query failed: ${error.message}`);
+  const [coursesRes, accessRes] = await Promise.all([
+    supabase
+      .from('courses')
+      .select('id, title, description, thumbnail, instructor, category, price, original_price, rating, reviews_count, duration, lessons_count, badge, member_level, is_active, created_at, updated_at')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('course_access')
+      .select('id, course_id')
+      .eq('status', 'active'),
+  ]);
+
+  if (coursesRes.error) {
+    console.error('[Supabase Courses] Failed to fetch:', coursesRes.error.message);
+    throw new Error(`Supabase query failed: ${coursesRes.error.message}`);
   }
-  return (data || []) as SupabaseCourse[];
+
+  // Build student count map from course_access
+  const studentCountMap: Record<string, number> = {};
+  if (accessRes.data) {
+    for (const row of accessRes.data) {
+      const courseId = row.course_id;
+      if (courseId) {
+        studentCountMap[courseId] = (studentCountMap[courseId] || 0) + 1;
+      }
+    }
+  }
+
+  const courses = (coursesRes.data || []) as SupabaseCourse[];
+  for (const course of courses) {
+    course.enrollments_count = studentCountMap[course.id] || 0;
+  }
+
+  return courses;
 }
 
 /**
@@ -51,11 +76,12 @@ export async function getAllCourses(): Promise<SupabaseCourse[]> {
 export async function getAllCoursesAdmin(): Promise<SupabaseCourse[]> {
   const supabase = getSupabaseAdmin();
 
-  // Fetch courses, lesson counts, and active student counts in parallel
+  // Fetch courses (excluding stale enrollments_count column),
+  // lesson counts, and active student counts in parallel
   const [coursesRes, lessonsRes, accessRes] = await Promise.all([
     supabase
       .from('courses')
-      .select('*')
+      .select('id, title, description, thumbnail, instructor, category, price, original_price, rating, reviews_count, duration, lessons_count, badge, member_level, is_active, created_at, updated_at')
       .order('created_at', { ascending: false }),
     supabase
       .from('lessons')
@@ -105,17 +131,29 @@ export async function getAllCoursesAdmin(): Promise<SupabaseCourse[]> {
 
 /**
  * Get a single course by ID
+ * Computes enrollments_count from course_access (not the stale column in courses table)
  */
 export async function getCourseById(id: string): Promise<SupabaseCourse | null> {
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from('courses')
-    .select('*')
-    .eq('id', id)
-    .single();
 
-  if (error || !data) return null;
-  return data as SupabaseCourse;
+  const [courseRes, accessRes] = await Promise.all([
+    supabase
+      .from('courses')
+      .select('id, title, description, thumbnail, instructor, category, price, original_price, rating, reviews_count, duration, lessons_count, badge, member_level, is_active, created_at, updated_at')
+      .eq('id', id)
+      .single(),
+    supabase
+      .from('course_access')
+      .select('id')
+      .eq('course_id', id)
+      .eq('status', 'active'),
+  ]);
+
+  if (courseRes.error || !courseRes.data) return null;
+
+  const course = courseRes.data as SupabaseCourse;
+  course.enrollments_count = accessRes.data?.length || 0;
+  return course;
 }
 
 /**
