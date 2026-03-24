@@ -98,6 +98,7 @@ export default function CourseContentPage({ params }: { params: { id: string } }
   const [saveError, setSaveError] = useState<string | null>(null);
   const [serverSynced, setServerSynced] = useState<boolean | null>(null); // null=checking, true=synced, false=not synced
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [dbLessonCount, setDbLessonCount] = useState<number | null>(null);
 
   // Track last saved state for change detection
   const lastSavedJson = useRef<string>('');
@@ -259,6 +260,16 @@ export default function CourseContentPage({ params }: { params: { id: string } }
         setServerSynced(false);
       });
   }, [id, storageKey]);
+
+  // Fetch real lesson count from normalized lessons table (fallback for header)
+  useEffect(() => {
+    fetch(`/api/admin/courses/${id}/lesson-count`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) setDbLessonCount(data.count);
+      })
+      .catch(() => { /* ignore */ });
+  }, [id]);
 
   // Form states
   const [chapterTitle, setChapterTitle] = useState('');
@@ -611,7 +622,8 @@ export default function CourseContentPage({ params }: { params: { id: string } }
     setDragOverChapterIndex(null);
   };
 
-  const totalLessons = chapters.reduce((sum, ch) => sum + ch.lessons.length, 0);
+  const chaptersLessonCount = chapters.reduce((sum, ch) => sum + ch.lessons.length, 0);
+  const totalLessons = chaptersLessonCount > 0 ? chaptersLessonCount : (dbLessonCount ?? 0);
 
   // Helper to get names for delete confirmation
   const getChapterTitle = (chapterId: string) => chapters.find((c) => c.id === chapterId)?.title ?? '';

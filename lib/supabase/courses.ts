@@ -45,19 +45,62 @@ export async function getAllCourses(): Promise<SupabaseCourse[]> {
 
 /**
  * Get all courses including inactive (for admin)
+ * Enriches with real lesson count (from lessons via course_sections)
+ * and real student count (from course_access where status='active')
  */
 export async function getAllCoursesAdmin(): Promise<SupabaseCourse[]> {
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from('courses')
-    .select('*')
-    .order('created_at', { ascending: false });
 
-  if (error) {
-    console.warn('[Supabase Courses] Failed to fetch for admin:', error.message);
+  // Fetch courses, lesson counts, and active student counts in parallel
+  const [coursesRes, lessonsRes, accessRes] = await Promise.all([
+    supabase
+      .from('courses')
+      .select('*')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('lessons')
+      .select('id, course_sections!inner(course_id)'),
+    supabase
+      .from('course_access')
+      .select('id, course_id')
+      .eq('status', 'active'),
+  ]);
+
+  if (coursesRes.error) {
+    console.warn('[Supabase Courses] Failed to fetch for admin:', coursesRes.error.message);
     return [];
   }
-  return (data || []) as SupabaseCourse[];
+
+  // Build lesson count map: course_id -> count
+  const lessonCountMap: Record<string, number> = {};
+  if (lessonsRes.data) {
+    for (const row of lessonsRes.data as any[]) {
+      const courseId = row.course_sections?.course_id;
+      if (courseId) {
+        lessonCountMap[courseId] = (lessonCountMap[courseId] || 0) + 1;
+      }
+    }
+  }
+
+  // Build student count map: course_id -> count
+  const studentCountMap: Record<string, number> = {};
+  if (accessRes.data) {
+    for (const row of accessRes.data) {
+      const courseId = row.course_id;
+      if (courseId) {
+        studentCountMap[courseId] = (studentCountMap[courseId] || 0) + 1;
+      }
+    }
+  }
+
+  // Enrich courses with real counts
+  const courses = (coursesRes.data || []) as SupabaseCourse[];
+  for (const course of courses) {
+    course.lessons_count = lessonCountMap[course.id] || 0;
+    course.enrollments_count = studentCountMap[course.id] || 0;
+  }
+
+  return courses;
 }
 
 /**
