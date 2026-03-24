@@ -37,8 +37,8 @@ export async function getAllCourses(): Promise<SupabaseCourse[]> {
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.warn('[Supabase Courses] Failed to fetch:', error.message);
-    return [];
+    console.error('[Supabase Courses] Failed to fetch:', error.message);
+    throw new Error(`Supabase query failed: ${error.message}`);
   }
   return (data || []) as SupabaseCourse[];
 }
