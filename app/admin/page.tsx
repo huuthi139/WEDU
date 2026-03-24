@@ -404,18 +404,34 @@ export default function AdminDashboard() {
     ));
   };
 
-  const handleAddCourseToStudent = (studentId: string, courseId: string) => {
+  const handleAddCourseToStudent = async (studentId: string, courseId: string) => {
     const course = courses.find(c => c.id === courseId);
     if (!course) return;
-    setStudents(prev => prev.map(s =>
-      s.id === studentId
-        ? {
-            ...s,
-            enrolledCourses: [...s.enrolledCourses, { courseId, courseName: course.title, progress: 0 }],
-          }
-        : s
-    ));
-    setShowAddCourseModal(null);
+
+    try {
+      const res = await fetch('/api/admin/course-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: studentId, course_id: courseId }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(`Lỗi: ${data.error}`);
+        return;
+      }
+
+      setStudents(prev => prev.map(s =>
+        s.id === studentId
+          ? {
+              ...s,
+              enrolledCourses: [...s.enrolledCourses, { courseId, courseName: course.title, progress: 0 }],
+            }
+          : s
+      ));
+      setShowAddCourseModal(null);
+    } catch (err) {
+      alert('Không thể thêm khóa học. Vui lòng thử lại.');
+    }
   };
 
   /* ------- Course CRUD handlers ------- */

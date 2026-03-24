@@ -216,3 +216,113 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({ success: true, updated: updates });
 }
+
+/**
+ * POST /api/admin/course-access
+ * Grant course access to a user. Auto-resolves access_tier from user's member_level.
+ *
+ * Body:
+ * {
+ *   user_id: string
+ *   course_id: string
+ * }
+ */
+export async function POST(request: NextRequest) {
+  const { isAdmin, userId: actorUserId } = await verifyAdmin(request);
+  if (!isAdmin) {
+    return NextResponse.json({ success: false, error: 'Không có quyền truy cập' }, { status: 403 });
+  }
+
+  const supabase = getSupabaseAdmin();
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, error: 'Invalid request body' }, { status: 400 });
+  }
+
+  const userId = body.user_id as string;
+  const courseId = body.course_id as string;
+  if (!userId || !courseId) {
+    return NextResponse.json({ success: false, error: 'user_id and course_id are required' }, { status: 400 });
+  }
+
+  try {
+    // Look up user's member_level to determine access_tier
+    const { data: user, error: userErr } = await supabase
+      .from('users')
+      .select('id, member_level')
+      .eq('id', userId)
+      .single();
+
+    if (userErr || !user) {
+      return NextResponse.json({ success: false, error: 'User not found' }, { status: 404 });
+    }
+
+    // Map member_level → access_tier
+    const levelToTier: Record<string, string> = {
+      Free: 'free',
+      Premium: 'premium',
+      VIP: 'vip',
+    };
+    const accessTier = levelToTier[user.member_level] || 'free';
+
+    // Check for existing active access
+    const { data: existing } = await supabase
+      .from('course_access')
+      .select('id, status')
+      .eq('user_id', userId)
+      .eq('course_id', courseId)
+      .limit(1)
+      .maybeSingle();
+
+    const now = new Date().toISOString();
+
+    if (existing) {
+      // Reactivate if cancelled/expired, or update tier
+      const { error } = await supabase
+        .from('course_access')
+        .update({ access_tier: accessTier, status: 'active', activated_at: now, updated_at: now })
+        .eq('id', existing.id);
+
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
+    } else {
+      // Insert new record
+      const { error } = await supabase
+        .from('course_access')
+        .insert({
+          user_id: userId,
+          course_id: courseId,
+          access_tier: accessTier,
+          status: 'active',
+          source: 'manual',
+          activated_at: now,
+          created_at: now,
+          updated_at: now,
+        });
+
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
+    }
+
+    writeAuditLog({
+      actorUserId,
+      actionType: 'course_access_upsert',
+      targetTable: 'course_access',
+      targetId: `${userId}::${courseId}`,
+      entityKey: `${userId}::${courseId}`,
+      oldValue: null,
+      newValue: { access_tier: accessTier, status: 'active', source: 'manual' },
+      status: 'success',
+    }).catch(() => {});
+
+    return NextResponse.json({ success: true, access_tier: accessTier });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+  }
+}
