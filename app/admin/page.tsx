@@ -122,7 +122,8 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
 
   // ------- Course CRUD state -------
-  const { courses: sheetCourses, refetch: refetchCourses } = useCourses();
+  // Use admin API directly (Supabase-only, no fallback/cache) instead of public context
+  const { refetch: refetchCourses } = useCourses();
   // ------- Orders from Supabase -------
   const [supabaseOrders, setSupabaseOrders] = useState<{ id: string; name: string; email: string; course: string; amount: number; status: string; date: string; method: string }[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
@@ -334,11 +335,43 @@ export default function AdminDashboard() {
     }
   }, [courses, saveCourseToAPI]);
 
-  // Load courses from context (which reads from API → Supabase)
+  // Load courses directly from admin API (Supabase-only, no fallback)
+  const fetchAdminCourses = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/courses', {
+        cache: 'no-store',
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.courses)) {
+        // Map Supabase rows to frontend Course format
+        setCourses(data.courses.map((row: any) => ({
+          id: String(row.id),
+          title: row.title || '',
+          description: row.description || '',
+          thumbnail: row.thumbnail || '',
+          instructor: row.instructor || 'WePower Academy',
+          category: row.category || '',
+          price: Number(row.price) || 0,
+          originalPrice: row.original_price != null ? Number(row.original_price) : undefined,
+          rating: Number(row.rating) || 0,
+          reviewsCount: Number(row.reviews_count) || 0,
+          enrollmentsCount: Number(row.enrollments_count) || 0,
+          duration: Number(row.duration) || 0,
+          lessonsCount: Number(row.lessons_count) || 0,
+          isFree: Number(row.price) === 0,
+          badge: row.badge || undefined,
+          memberLevel: row.member_level || 'Free',
+        })));
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to fetch courses:', err);
+    }
+  }, []);
+
   useEffect(() => {
-    if (sheetCourses.length === 0) return;
-    setCourses(sheetCourses);
-  }, [sheetCourses]);
+    fetchAdminCourses();
+  }, [fetchAdminCourses]);
 
   // ------- Computed values -------
   const totalRevenue = recentOrders.filter(o => o.status === 'Hoàn thành').reduce((sum, o) => sum + o.amount, 0);
@@ -519,10 +552,9 @@ export default function AdminDashboard() {
 
     setSaveStatus(ok ? 'saved' : 'error');
 
-    // Refetch from Supabase so context stays in sync (cache was invalidated server-side)
-    // Small delay to ensure Supabase write has propagated
+    // Refetch from Supabase so admin list stays in sync
     if (ok) {
-      setTimeout(() => refetchCourses(), 500);
+      setTimeout(() => { fetchAdminCourses(); refetchCourses(); }, 500);
     }
 
     setTimeout(() => setSaveStatus('idle'), 2500);
@@ -540,7 +572,7 @@ export default function AdminDashboard() {
     if (!deletingCourse) return;
     updateCourses(prev => prev.filter(c => c.id !== deletingCourse.id));
     const ok = await deleteCourseFromAPI(deletingCourse.id);
-    if (ok) refetchCourses();
+    if (ok) { fetchAdminCourses(); refetchCourses(); }
     setShowDeleteModal(false);
     setDeletingCourse(null);
   };
