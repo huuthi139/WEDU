@@ -287,8 +287,11 @@ export default function AdminDashboard() {
       });
       const data = await res.json();
       if (!data.success) {
-        console.error('[Admin] Save course failed:', data.error);
-        setCourseError(data.error || 'Không thể lưu khóa học');
+        const errMsg = typeof data.error === 'string'
+          ? data.error
+          : data.error?.message || 'Không thể lưu khóa học';
+        console.error('[Admin] Save course failed:', errMsg);
+        setCourseError(errMsg);
       }
       return data.success;
     } catch (err) {

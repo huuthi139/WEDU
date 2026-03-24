@@ -98,7 +98,7 @@ export function StaffTab({ isMainAdmin }: StaffTabProps) {
       });
       const data = await res.json();
       if (data.success) {
-        setSuccessMsg(data.data?.message || 'Thêm nhân sự thành công');
+        setSuccessMsg(data.message || data.data?.message || 'Thêm nhân sự thành công');
         setShowAddModal(false);
         setAddEmail('');
         setAddRole('sub_admin');

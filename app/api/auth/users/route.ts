@@ -1,6 +1,5 @@
 import { requireAdmin, AuthError } from '@/lib/auth/guards';
 import { getAllUsers } from '@/lib/supabase/users';
-import { apiSuccess, ERR } from '@/lib/api/response';
 import { NextResponse } from 'next/server';
 
 async function handleFetchUsers() {
@@ -8,9 +7,15 @@ async function handleFetchUsers() {
     await requireAdmin();
   } catch (error) {
     if (error instanceof AuthError) {
-      return error.status === 401 ? ERR.UNAUTHORIZED() : ERR.FORBIDDEN();
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: error.status },
+      );
     }
-    return ERR.UNAUTHORIZED();
+    return NextResponse.json(
+      { success: false, error: 'Unauthorized' },
+      { status: 401 },
+    );
   }
 
   try {
@@ -24,7 +29,7 @@ async function handleFetchUsers() {
       Phone: u.phone || '',
     }));
 
-    return apiSuccess({ users, source: 'supabase' });
+    return NextResponse.json({ success: true, users, source: 'supabase' });
   } catch (err) {
     return NextResponse.json({
       success: false,
