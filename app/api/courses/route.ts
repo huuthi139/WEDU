@@ -30,12 +30,6 @@ export async function GET() {
     const rows = await getAllCourses();
     const courses = rows.map(row => courseRowToFrontend(row as unknown as CourseRow));
 
-    // DEBUG: Log enrollmentsCount in final API response
-    console.log('[API /api/courses] ENROLLMENTS DEBUG:', courses.map(c => ({
-      id: c.id,
-      enrollmentsCount: c.enrollmentsCount,
-    })));
-
     setCachedCourses(courses);
 
     const response = NextResponse.json({ success: true, courses });
