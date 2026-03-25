@@ -27,7 +27,8 @@ export interface SupabaseCourse {
 
 /**
  * Get all active courses from Supabase
- * Computes enrollments_count from course_access (not the stale column in courses table)
+ * Computes enrollments_count from course_access (sole source of truth).
+ * Creates NEW objects (never mutates Supabase response) to avoid silent mutation failures.
  */
 export async function getAllCourses(): Promise<SupabaseCourse[]> {
   const supabase = getSupabaseAdmin();
@@ -56,34 +57,35 @@ export async function getAllCourses(): Promise<SupabaseCourse[]> {
     console.warn('[Courses] course_access query error:', accessRes.error.message);
   }
   for (const row of accessRows) {
-    const courseId = row.course_id;
-    if (courseId) {
-      studentCountMap[courseId] = (studentCountMap[courseId] || 0) + 1;
+    const cid = String(row.course_id ?? '');
+    if (cid) {
+      studentCountMap[cid] = (studentCountMap[cid] || 0) + 1;
     }
   }
 
-  console.log(`[Courses] course_access rows: ${accessRows.length}, studentCountMap:`, JSON.stringify(studentCountMap));
-
-  const courses = (coursesRes.data || []) as SupabaseCourse[];
-
-  // DEBUG: Log raw enrollments_count from Supabase BEFORE override
-  console.log('[ENROLLMENTS DEBUG] Raw from Supabase (before override):', courses.map(c => ({
-    id: c.id,
-    raw_enrollments_count: (c as any).enrollments_count,
-    has_field: 'enrollments_count' in c,
-  })));
-
-  for (const course of courses) {
-    course.enrollments_count = studentCountMap[course.id] || 0;
-  }
-
-  // DEBUG: Log final enrollments_count AFTER override
-  console.log('[ENROLLMENTS DEBUG] Final (after override):', courses.map(c => ({
-    id: c.id,
-    enrollments_count: c.enrollments_count,
-  })));
-
-  return courses;
+  // Create NEW objects — never mutate Supabase response objects (they may be frozen/sealed).
+  // Explicitly set enrollments_count from course_access, ignoring any DB column value.
+  const rows = coursesRes.data || [];
+  return rows.map((row: any) => ({
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    thumbnail: row.thumbnail,
+    instructor: row.instructor,
+    category: row.category,
+    price: row.price,
+    original_price: row.original_price ?? null,
+    rating: row.rating,
+    reviews_count: row.reviews_count,
+    enrollments_count: studentCountMap[String(row.id)] || 0,
+    duration: row.duration,
+    lessons_count: row.lessons_count,
+    badge: row.badge ?? null,
+    member_level: row.member_level,
+    is_active: row.is_active,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  } as SupabaseCourse));
 }
 
 /**
@@ -137,14 +139,28 @@ export async function getAllCoursesAdmin(): Promise<SupabaseCourse[]> {
     }
   }
 
-  // Enrich courses with real counts
-  const courses = (coursesRes.data || []) as SupabaseCourse[];
-  for (const course of courses) {
-    course.lessons_count = lessonCountMap[course.id] || 0;
-    course.enrollments_count = studentCountMap[course.id] || 0;
-  }
-
-  return courses;
+  // Create NEW objects with real counts (never mutate Supabase response)
+  const rows = coursesRes.data || [];
+  return rows.map((row: any) => ({
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    thumbnail: row.thumbnail,
+    instructor: row.instructor,
+    category: row.category,
+    price: row.price,
+    original_price: row.original_price ?? null,
+    rating: row.rating,
+    reviews_count: row.reviews_count,
+    enrollments_count: studentCountMap[String(row.id)] || 0,
+    duration: row.duration,
+    lessons_count: lessonCountMap[String(row.id)] || 0,
+    badge: row.badge ?? null,
+    member_level: row.member_level,
+    is_active: row.is_active,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  } as SupabaseCourse));
 }
 
 /**
@@ -169,9 +185,27 @@ export async function getCourseById(id: string): Promise<SupabaseCourse | null> 
 
   if (courseRes.error || !courseRes.data) return null;
 
-  const course = courseRes.data as SupabaseCourse;
-  course.enrollments_count = accessRes.data?.length || 0;
-  return course;
+  const row = courseRes.data as any;
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    thumbnail: row.thumbnail,
+    instructor: row.instructor,
+    category: row.category,
+    price: row.price,
+    original_price: row.original_price ?? null,
+    rating: row.rating,
+    reviews_count: row.reviews_count,
+    enrollments_count: accessRes.data?.length || 0,
+    duration: row.duration,
+    lessons_count: row.lessons_count,
+    badge: row.badge ?? null,
+    member_level: row.member_level,
+    is_active: row.is_active,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  } as SupabaseCourse;
 }
 
 /**
