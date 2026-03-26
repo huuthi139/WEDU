@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Fragment, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
@@ -14,7 +15,7 @@ import { StudentsTab } from './_components/tabs/StudentsTab';
 import { OrdersTab } from './_components/tabs/OrdersTab';
 import { StaffTab } from './_components/tabs/StaffTab';
 
-type Tab = 'overview' | 'courses' | 'students' | 'orders' | 'staff';
+type Tab = 'overview' | 'courses' | 'students' | 'orders' | 'staff' | 'videos';
 
 /* ============================================================
    STUDENT INTERFACES & MOCK DATA
@@ -123,6 +124,7 @@ const emptyCourseForm: CourseFormData = {
    ============================================================ */
 
 export default function AdminDashboard() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>('overview');
 
   // ------- Course CRUD state -------
@@ -642,6 +644,10 @@ export default function AdminDashboard() {
       key: 'staff', label: 'Nhân sự',
       icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
     },
+    {
+      key: 'videos', label: 'Kho Video',
+      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>,
+    },
   ];
 
   return (
@@ -666,16 +672,6 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {/* Kho Video link */}
-            <Link
-              href="/admin/videos"
-              className="inline-flex items-center gap-2 h-10 px-4 rounded-lg font-bold text-sm transition-all duration-200 bg-white/5 text-gray-300 border border-white/10 hover:border-teal/30 hover:text-teal"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              Kho Video
-            </Link>
             {/* Import Tool link */}
             <Link
               href="/admin/import"
@@ -765,7 +761,7 @@ export default function AdminDashboard() {
             {tabs.map(tab => (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => tab.key === 'videos' ? router.push('/admin/videos') : setActiveTab(tab.key)}
                 className={`flex items-center gap-2 pb-3 px-4 text-sm font-semibold transition-colors relative whitespace-nowrap ${
                   activeTab === tab.key ? 'text-teal' : 'text-gray-400 hover:text-white'
                 }`}

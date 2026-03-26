@@ -206,14 +206,22 @@ export async function POST(
     let totalDuration = 0;
 
     // Delete existing sections and lessons for this course
-    await supabase.from('lessons').delete().eq('course_id', courseId);
-    await supabase.from('course_sections').delete().eq('course_id', courseId);
+    const { error: deleteLessonsErr } = await supabase.from('lessons').delete().eq('course_id', courseId);
+    if (deleteLessonsErr) {
+      console.error('[Chapters POST] Failed to delete existing lessons:', deleteLessonsErr);
+      return NextResponse.json({ success: false, error: `Lỗi xóa bài học cũ: ${deleteLessonsErr.message}` }, { status: 500 });
+    }
+    const { error: deleteSectionsErr } = await supabase.from('course_sections').delete().eq('course_id', courseId);
+    if (deleteSectionsErr) {
+      console.error('[Chapters POST] Failed to delete existing sections:', deleteSectionsErr);
+      return NextResponse.json({ success: false, error: `Lỗi xóa phần cũ: ${deleteSectionsErr.message}` }, { status: 500 });
+    }
 
     // Insert sections and lessons
     for (let sIdx = 0; sIdx < chapters.length; sIdx++) {
       const ch = chapters[sIdx];
 
-      const { data: section } = await supabase
+      const { data: section, error: sectionErr } = await supabase
         .from('course_sections')
         .insert({
           course_id: courseId,
@@ -226,6 +234,10 @@ export async function POST(
         .select('id')
         .single();
 
+      if (sectionErr) {
+        console.error(`[Chapters POST] Failed to insert section ${sIdx}:`, sectionErr);
+        return NextResponse.json({ success: false, error: `Lỗi tạo phần "${ch.title}": ${sectionErr.message}` }, { status: 500 });
+      }
       if (!section) continue;
 
       const lessons = ch.lessons || [];
@@ -244,10 +256,9 @@ export async function POST(
           accessTier = 'free';
         }
 
-        await supabase.from('lessons').insert({
+        const { error: lessonErr } = await supabase.from('lessons').insert({
           course_id: courseId,
           section_id: section.id,
-          chapter_id: section.id,
           title: ls.title || `Bài ${lIdx + 1}`,
           description: '',
           duration: ls.duration || '00:00',
@@ -261,6 +272,10 @@ export async function POST(
           created_at: now,
           updated_at: now,
         });
+        if (lessonErr) {
+          console.error(`[Chapters POST] Failed to insert lesson ${lIdx} in section ${sIdx}:`, lessonErr);
+          return NextResponse.json({ success: false, error: `Lỗi tạo bài "${ls.title}": ${lessonErr.message}` }, { status: 500 });
+        }
       }
     }
 
@@ -282,8 +297,8 @@ export async function POST(
       message: `Đã lưu ${chapters.length} chương, ${totalLessons} bài học`,
     });
   } catch (error: any) {
-    console.error('Chapters POST error:', error);
-    return NextResponse.json({ success: false, error: 'Lỗi hệ thống. Vui lòng thử lại.' }, { status: 500 });
+    console.error('Chapters POST error:', error?.message || error, error?.stack);
+    return NextResponse.json({ success: false, error: `Lỗi hệ thống: ${error?.message || 'Unknown'}` }, { status: 500 });
   }
 }
 
@@ -333,7 +348,6 @@ async function migrateJsonbToNormalized(courseId: string, chapters: any[]): Prom
           return {
             course_id: courseId,
             section_id: section.id,
-            chapter_id: section.id,
             title: ls.title || `Bài ${lIdx + 1}`,
             description: '',
             duration: ls.duration || '00:00',
