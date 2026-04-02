@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
+import { requireAdmin, AuthError } from '@/lib/auth/guards';
 
 // Recommended: 1280x720 (16:9) - works well on both web and mobile
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -8,6 +9,15 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 export async function POST(request: NextRequest) {
   try {
+    // Require admin access for thumbnail uploads
+    try {
+      await requireAdmin();
+    } catch (err) {
+      if (err instanceof AuthError) {
+        return NextResponse.json({ success: false, error: err.message }, { status: err.status });
+      }
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
     const formData = await request.formData();
     const file = formData.get('thumbnail') as File | null;
 

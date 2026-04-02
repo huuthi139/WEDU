@@ -26,24 +26,76 @@ export interface SupabaseCourse {
 }
 
 /**
- * Get all active courses from Supabase
- * Reads enrollments_count directly from the courses table column.
+ * Get all active courses from Supabase.
+ * Computes real enrollments_count from course_access (active) and
+ * real lessons_count from lessons via course_sections — same logic as getAllCoursesAdmin().
  */
 export async function getAllCourses(): Promise<SupabaseCourse[]> {
   const supabase = getSupabaseAdmin();
 
-  const { data, error } = await supabase
-    .from('courses')
-    .select('id, title, description, thumbnail, instructor, category, price, original_price, rating, reviews_count, enrollments_count, duration, lessons_count, badge, member_level, is_active, created_at, updated_at')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false });
+  const [coursesRes, lessonsRes, accessRes] = await Promise.all([
+    supabase
+      .from('courses')
+      .select('id, title, description, thumbnail, instructor, category, price, original_price, rating, reviews_count, duration, lessons_count, badge, member_level, is_active, created_at, updated_at')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('lessons')
+      .select('id, course_sections!inner(course_id)'),
+    supabase
+      .from('course_access')
+      .select('id, course_id')
+      .eq('status', 'active'),
+  ]);
 
-  if (error) {
-    console.error('[Supabase Courses] Failed to fetch:', error.message);
-    throw new Error(`Supabase query failed: ${error.message}`);
+  if (coursesRes.error) {
+    console.error('[Supabase Courses] Failed to fetch:', coursesRes.error.message);
+    throw new Error(`Supabase query failed: ${coursesRes.error.message}`);
   }
 
-  return (data || []) as SupabaseCourse[];
+  // Build lesson count map: course_id -> count
+  const lessonCountMap: Record<string, number> = {};
+  if (lessonsRes.data) {
+    for (const row of lessonsRes.data as any[]) {
+      const courseId = row.course_sections?.course_id;
+      if (courseId) {
+        lessonCountMap[courseId] = (lessonCountMap[courseId] || 0) + 1;
+      }
+    }
+  }
+
+  // Build student count map: course_id -> count
+  const studentCountMap: Record<string, number> = {};
+  if (accessRes.data) {
+    for (const row of accessRes.data) {
+      const courseId = row.course_id;
+      if (courseId) {
+        studentCountMap[courseId] = (studentCountMap[courseId] || 0) + 1;
+      }
+    }
+  }
+
+  const rows = coursesRes.data || [];
+  return rows.map((row: any) => ({
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    thumbnail: row.thumbnail,
+    instructor: row.instructor,
+    category: row.category,
+    price: row.price,
+    original_price: row.original_price ?? null,
+    rating: row.rating,
+    reviews_count: row.reviews_count,
+    enrollments_count: studentCountMap[String(row.id)] || 0,
+    duration: row.duration,
+    lessons_count: lessonCountMap[String(row.id)] || 0,
+    badge: row.badge ?? null,
+    member_level: row.member_level,
+    is_active: row.is_active,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  } as SupabaseCourse));
 }
 
 /**
@@ -122,21 +174,37 @@ export async function getAllCoursesAdmin(): Promise<SupabaseCourse[]> {
 }
 
 /**
- * Get a single course by ID
- * Reads enrollments_count directly from the courses table column.
+ * Get a single course by ID.
+ * Computes real enrollments_count from course_access and lessons_count from lessons.
  */
 export async function getCourseById(id: string): Promise<SupabaseCourse | null> {
   const supabase = getSupabaseAdmin();
 
-  const { data, error } = await supabase
-    .from('courses')
-    .select('id, title, description, thumbnail, instructor, category, price, original_price, rating, reviews_count, enrollments_count, duration, lessons_count, badge, member_level, is_active, created_at, updated_at')
-    .eq('id', id)
-    .single();
+  const [courseRes, lessonsRes, accessRes] = await Promise.all([
+    supabase
+      .from('courses')
+      .select('id, title, description, thumbnail, instructor, category, price, original_price, rating, reviews_count, duration, lessons_count, badge, member_level, is_active, created_at, updated_at')
+      .eq('id', id)
+      .single(),
+    supabase
+      .from('lessons')
+      .select('id, course_sections!inner(course_id)')
+      .eq('course_sections.course_id', id),
+    supabase
+      .from('course_access')
+      .select('id')
+      .eq('course_id', id)
+      .eq('status', 'active'),
+  ]);
 
-  if (error || !data) return null;
+  if (courseRes.error || !courseRes.data) return null;
 
-  return data as SupabaseCourse;
+  const row = courseRes.data as any;
+  return {
+    ...row,
+    enrollments_count: accessRes.data?.length || 0,
+    lessons_count: lessonsRes.data?.length || 0,
+  } as SupabaseCourse;
 }
 
 /**

@@ -200,12 +200,23 @@ export async function POST(
     }
 
     // Save to normalized tables (source of truth)
+    // Pattern: backup old data → delete → insert → if insert fails → restore backup
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
     let totalLessons = 0;
     let totalDuration = 0;
 
-    // Delete existing sections and lessons for this course
+    // Step 1: Backup existing sections and lessons before deletion
+    const { data: backupSections } = await supabase
+      .from('course_sections')
+      .select('*')
+      .eq('course_id', courseId);
+    const { data: backupLessons } = await supabase
+      .from('lessons')
+      .select('*')
+      .eq('course_id', courseId);
+
+    // Step 2: Delete existing sections and lessons
     const { error: deleteLessonsErr } = await supabase.from('lessons').delete().eq('course_id', courseId);
     if (deleteLessonsErr) {
       console.error('[Chapters POST] Failed to delete existing lessons:', deleteLessonsErr);
@@ -214,72 +225,92 @@ export async function POST(
     const { error: deleteSectionsErr } = await supabase.from('course_sections').delete().eq('course_id', courseId);
     if (deleteSectionsErr) {
       console.error('[Chapters POST] Failed to delete existing sections:', deleteSectionsErr);
+      // Restore backed-up lessons since sections delete failed but lessons were already deleted
+      if (backupLessons && backupLessons.length > 0) {
+        await supabase.from('lessons').insert(backupLessons);
+      }
       return NextResponse.json({ success: false, error: `Lỗi xóa phần cũ: ${deleteSectionsErr.message}` }, { status: 500 });
     }
 
-    // Insert sections and lessons
-    for (let sIdx = 0; sIdx < chapters.length; sIdx++) {
-      const ch = chapters[sIdx];
+    // Step 3: Insert new sections and lessons — restore backup on any failure
+    try {
+      for (let sIdx = 0; sIdx < chapters.length; sIdx++) {
+        const ch = chapters[sIdx];
 
-      const { data: section, error: sectionErr } = await supabase
-        .from('course_sections')
-        .insert({
-          course_id: courseId,
-          title: ch.title || `Phần ${sIdx + 1}`,
-          description: '',
-          sort_order: sIdx,
-          created_at: now,
-          updated_at: now,
-        })
-        .select('id')
-        .single();
+        const { data: section, error: sectionErr } = await supabase
+          .from('course_sections')
+          .insert({
+            course_id: courseId,
+            title: ch.title || `Phần ${sIdx + 1}`,
+            description: '',
+            sort_order: sIdx,
+            created_at: now,
+            updated_at: now,
+          })
+          .select('id')
+          .single();
 
-      if (sectionErr) {
-        console.error(`[Chapters POST] Failed to insert section ${sIdx}:`, sectionErr);
-        return NextResponse.json({ success: false, error: `Lỗi tạo phần "${ch.title}": ${sectionErr.message}` }, { status: 500 });
+        if (sectionErr || !section) {
+          throw new Error(`Lỗi tạo phần "${ch.title}": ${sectionErr?.message || 'No data returned'}`);
+        }
+
+        const lessons = ch.lessons || [];
+        for (let lIdx = 0; lIdx < lessons.length; lIdx++) {
+          const ls = lessons[lIdx];
+          const durationSecs = parseDurationToSeconds(ls.duration || '');
+          totalLessons++;
+          totalDuration += durationSecs;
+
+          // Map requiredLevel to access_tier for backward compat
+          let accessTier = ls.accessTier || 'free';
+          if (!ls.accessTier && ls.requiredLevel) {
+            accessTier = ls.requiredLevel === 'VIP' ? 'vip' : ls.requiredLevel === 'Premium' ? 'premium' : 'free';
+          }
+          if (!ls.accessTier && ls.isPreview) {
+            accessTier = 'free';
+          }
+
+          const { error: lessonErr } = await supabase.from('lessons').insert({
+            course_id: courseId,
+            section_id: section.id,
+            title: ls.title || `Bài ${lIdx + 1}`,
+            description: '',
+            duration: ls.duration || '00:00',
+            duration_seconds: durationSecs,
+            video_url: '',
+            direct_play_url: ls.directPlayUrl || '',
+            is_preview: ls.isPreview || accessTier === 'free',
+            access_tier: accessTier,
+            lesson_type: ls.lessonType || 'video',
+            sort_order: lIdx,
+            created_at: now,
+            updated_at: now,
+          });
+          if (lessonErr) {
+            throw new Error(`Lỗi tạo bài "${ls.title}": ${lessonErr.message}`);
+          }
+        }
       }
-      if (!section) continue;
+    } catch (insertError: any) {
+      // Insert failed mid-way — restore old data so nothing is lost
+      console.error('[Chapters POST] Insert failed, restoring backup:', insertError.message);
 
-      const lessons = ch.lessons || [];
-      for (let lIdx = 0; lIdx < lessons.length; lIdx++) {
-        const ls = lessons[lIdx];
-        const durationSecs = parseDurationToSeconds(ls.duration || '');
-        totalLessons++;
-        totalDuration += durationSecs;
+      // Clean up any partially inserted new data
+      await supabase.from('lessons').delete().eq('course_id', courseId);
+      await supabase.from('course_sections').delete().eq('course_id', courseId);
 
-        // Map requiredLevel to access_tier for backward compat
-        let accessTier = ls.accessTier || 'free';
-        if (!ls.accessTier && ls.requiredLevel) {
-          accessTier = ls.requiredLevel === 'VIP' ? 'vip' : ls.requiredLevel === 'Premium' ? 'premium' : 'free';
-        }
-        if (!ls.accessTier && ls.isPreview) {
-          accessTier = 'free';
-        }
-
-        const { error: lessonErr } = await supabase.from('lessons').insert({
-          course_id: courseId,
-          section_id: section.id,
-          title: ls.title || `Bài ${lIdx + 1}`,
-          description: '',
-          duration: ls.duration || '00:00',
-          duration_seconds: durationSecs,
-          video_url: '',
-          direct_play_url: ls.directPlayUrl || '',
-          is_preview: ls.isPreview || accessTier === 'free',
-          access_tier: accessTier,
-          lesson_type: ls.lessonType || 'video',
-          sort_order: lIdx,
-          created_at: now,
-          updated_at: now,
-        });
-        if (lessonErr) {
-          console.error(`[Chapters POST] Failed to insert lesson ${lIdx} in section ${sIdx}:`, lessonErr);
-          return NextResponse.json({ success: false, error: `Lỗi tạo bài "${ls.title}": ${lessonErr.message}` }, { status: 500 });
-        }
+      // Restore backup
+      if (backupSections && backupSections.length > 0) {
+        await supabase.from('course_sections').insert(backupSections);
       }
+      if (backupLessons && backupLessons.length > 0) {
+        await supabase.from('lessons').insert(backupLessons);
+      }
+
+      return NextResponse.json({ success: false, error: `Lưu thất bại, dữ liệu cũ đã được phục hồi. Chi tiết: ${insertError.message}` }, { status: 500 });
     }
 
-    // Update courses table with stats
+    // Step 4: Update courses table with stats
     await supabase
       .from('courses')
       .update({
