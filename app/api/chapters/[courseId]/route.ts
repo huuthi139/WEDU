@@ -50,15 +50,21 @@ function sectionsToChapterFormat(
       const lessonTier = (ls as LessonRow & { access_tier?: string }).access_tier || 'free';
       const canAccess = isStaffUser || meetsAccessTier(userTier, lessonTier as AccessTier);
 
+      const lType = (ls as LessonRow & { lesson_type?: string }).lesson_type || 'video';
+      const playUrl = canAccess ? (ls.direct_play_url || '') : '';
+      const lContent = canAccess ? ((ls as LessonRow & { content?: string }).content || '') : '';
+
       return {
         id: ls.id,
         title: ls.title,
         duration: ls.duration || '',
         accessTier: lessonTier,
         requiredLevel: accessTierToLevel(lessonTier),
-        lessonType: (ls as LessonRow & { lesson_type?: string }).lesson_type || 'video',
-        // Only expose play URL if user has access
-        directPlayUrl: canAccess ? (ls.direct_play_url || '') : '',
+        lessonType: lType,
+        directPlayUrl: lType === 'video' ? playUrl : '',
+        documentUrl: lType === 'pdf' ? playUrl : '',
+        imageUrl: lType === 'image' ? playUrl : '',
+        content: lType === 'text' ? lContent : '',
         isPreview: ls.is_preview || false,
         thumbnail: '',
       };
@@ -270,6 +276,12 @@ export async function POST(
             accessTier = 'free';
           }
 
+          // Resolve the primary content URL based on lesson type
+          const lType = ls.lessonType || 'video';
+          const contentUrl = lType === 'pdf' ? (ls.documentUrl || ls.directPlayUrl || '')
+            : lType === 'image' ? (ls.imageUrl || ls.directPlayUrl || '')
+            : (ls.directPlayUrl || '');
+
           const { error: lessonErr } = await supabase.from('lessons').insert({
             course_id: courseId,
             section_id: section.id,
@@ -278,10 +290,11 @@ export async function POST(
             duration: ls.duration || '00:00',
             duration_seconds: durationSecs,
             video_url: '',
-            direct_play_url: ls.directPlayUrl || '',
+            direct_play_url: contentUrl,
             is_preview: ls.isPreview || accessTier === 'free',
             access_tier: accessTier,
-            lesson_type: ls.lessonType || 'video',
+            lesson_type: lType,
+            content: ls.content || '',
             sort_order: lIdx,
             created_at: now,
             updated_at: now,
@@ -376,6 +389,12 @@ async function migrateJsonbToNormalized(courseId: string, chapters: any[]): Prom
           if (!ls.accessTier && ls.isPreview) {
             accessTier = 'free';
           }
+          // Resolve the primary content URL based on lesson type
+          const lType = ls.lessonType || 'video';
+          const contentUrl = lType === 'pdf' ? (ls.documentUrl || ls.directPlayUrl || '')
+            : lType === 'image' ? (ls.imageUrl || ls.directPlayUrl || '')
+            : (ls.directPlayUrl || '');
+
           return {
             course_id: courseId,
             section_id: section.id,
@@ -384,10 +403,11 @@ async function migrateJsonbToNormalized(courseId: string, chapters: any[]): Prom
             duration: ls.duration || '00:00',
             duration_seconds: durationSecs,
             video_url: '',
-            direct_play_url: ls.directPlayUrl || '',
+            direct_play_url: contentUrl,
             is_preview: ls.isPreview || accessTier === 'free',
             access_tier: accessTier,
-            lesson_type: ls.lessonType || 'video',
+            lesson_type: lType,
+            content: ls.content || '',
             sort_order: lIdx,
             created_at: now,
             updated_at: now,

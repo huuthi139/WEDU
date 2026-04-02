@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { formatPrice } from '@/lib/utils';
-import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
+import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson, type ChapterLessonType } from '@/lib/utils/chapters';
 
 // Helper: format seconds to MM:SS
 function formatSecondsToMMSS(totalSeconds: number): string {
@@ -278,7 +278,30 @@ export default function CourseContentPage({ params }: { params: { id: string } }
   const [lessonLevel, setLessonLevel] = useState<MemberLevel>('Free');
   const [lessonDirectPlayUrl, setLessonDirectPlayUrl] = useState('');
   const [lessonThumbnail, setLessonThumbnail] = useState('');
+  const [lessonType, setLessonType] = useState<ChapterLessonType>('video');
+  const [lessonContent, setLessonContent] = useState('');
+  const [lessonDocumentUrl, setLessonDocumentUrl] = useState('');
+  const [lessonImageUrl, setLessonImageUrl] = useState('');
+  const [uploadingFile, setUploadingFile] = useState(false);
   const [durationLoading, setDurationLoading] = useState(false);
+
+  // Upload file (reuses thumbnail upload endpoint)
+  const handleFileUpload = useCallback(async (file: File) => {
+    setUploadingFile(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload/thumbnail', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.url) {
+        setLessonDocumentUrl(data.url);
+      }
+    } catch (err) {
+      console.error('Upload failed:', err);
+    } finally {
+      setUploadingFile(false);
+    }
+  }, []);
 
   // Auto-detect video duration when URL changes
   const handleUrlChange = useCallback((url: string) => {
@@ -423,6 +446,10 @@ export default function CourseContentPage({ params }: { params: { id: string } }
     setLessonLevel('Free');
     setLessonDirectPlayUrl('');
     setLessonThumbnail('');
+    setLessonType('video');
+    setLessonContent('');
+    setLessonDocumentUrl('');
+    setLessonImageUrl('');
     setModal({ kind: 'addLesson', chapterId });
   };
 
@@ -435,6 +462,10 @@ export default function CourseContentPage({ params }: { params: { id: string } }
       setLessonLevel(lesson.requiredLevel);
       setLessonDirectPlayUrl(lesson.directPlayUrl);
       setLessonThumbnail(lesson.thumbnail || '');
+      setLessonType(lesson.lessonType || 'video');
+      setLessonContent(lesson.content || '');
+      setLessonDocumentUrl(lesson.documentUrl || '');
+      setLessonImageUrl(lesson.imageUrl || '');
       setModal({ kind: 'editLesson', chapterId, lessonId });
     }
   };
@@ -452,9 +483,12 @@ export default function CourseContentPage({ params }: { params: { id: string } }
       duration: lessonDuration.trim(),
       requiredLevel: lessonLevel,
       accessTier: accessTier as any,
-      lessonType: 'video',
-      directPlayUrl: lessonDirectPlayUrl.trim(),
-      thumbnail: lessonThumbnail.trim(),
+      lessonType: lessonType,
+      directPlayUrl: lessonType === 'video' ? lessonDirectPlayUrl.trim() : '',
+      thumbnail: lessonType === 'video' ? lessonThumbnail.trim() : '',
+      content: lessonType === 'text' ? lessonContent.trim() : '',
+      documentUrl: lessonType === 'pdf' ? lessonDocumentUrl.trim() : '',
+      imageUrl: lessonType === 'image' ? lessonImageUrl.trim() : '',
     };
     updateChapters(
       chapters.map((ch) =>
@@ -473,7 +507,19 @@ export default function CourseContentPage({ params }: { params: { id: string } }
               ...ch,
               lessons: ch.lessons.map((ls) =>
                 ls.id === modal.lessonId
-                  ? { ...ls, title: lessonTitle.trim(), duration: lessonDuration.trim(), requiredLevel: lessonLevel, accessTier: (lessonLevel === 'VIP' ? 'vip' : lessonLevel === 'Premium' ? 'premium' : 'free') as any, lessonType: ls.lessonType || 'video', directPlayUrl: lessonDirectPlayUrl.trim(), thumbnail: lessonThumbnail.trim() }
+                  ? {
+                      ...ls,
+                      title: lessonTitle.trim(),
+                      duration: lessonDuration.trim(),
+                      requiredLevel: lessonLevel,
+                      accessTier: (lessonLevel === 'VIP' ? 'vip' : lessonLevel === 'Premium' ? 'premium' : 'free') as any,
+                      lessonType: lessonType,
+                      directPlayUrl: lessonType === 'video' ? lessonDirectPlayUrl.trim() : '',
+                      thumbnail: lessonType === 'video' ? lessonThumbnail.trim() : '',
+                      content: lessonType === 'text' ? lessonContent.trim() : '',
+                      documentUrl: lessonType === 'pdf' ? lessonDocumentUrl.trim() : '',
+                      imageUrl: lessonType === 'image' ? lessonImageUrl.trim() : '',
+                    }
                   : ls
               ),
             }
@@ -1083,12 +1129,39 @@ export default function CourseContentPage({ params }: { params: { id: string } }
       {modal.kind === 'addLesson' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-dark/70 backdrop-blur-sm" onClick={() => setModal({ kind: 'none' })} />
-          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-xl w-full max-w-md p-6">
+          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-white mb-1">Thêm bài học mới</h3>
             <p className="text-sm text-gray-400 mb-4">
               Vào chương: {getChapterTitle(modal.chapterId)}
             </p>
             <div className="space-y-4 mb-6">
+              {/* Lesson Type Selector */}
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">Loại bài học</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {([
+                    { value: 'video' as const, icon: '\uD83C\uDFAC', label: 'Video' },
+                    { value: 'text' as const, icon: '\uD83D\uDCDD', label: 'Text' },
+                    { value: 'pdf' as const, icon: '\uD83D\uDCC4', label: 'PDF' },
+                    { value: 'image' as const, icon: '\uD83D\uDDBC\uFE0F', label: 'Hình ảnh' },
+                  ]).map((t) => (
+                    <button
+                      key={t.value}
+                      type="button"
+                      onClick={() => setLessonType(t.value)}
+                      className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-lg border text-sm font-medium transition-all ${
+                        lessonType === t.value
+                          ? 'bg-teal/15 border-teal text-teal'
+                          : 'bg-white/5 border-gray-700 text-gray-400 hover:border-gray-500'
+                      }`}
+                    >
+                      <span className="text-lg">{t.icon}</span>
+                      <span>{t.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-2">Tiêu đề bài học</label>
                 <input
@@ -1100,70 +1173,173 @@ export default function CourseContentPage({ params }: { params: { id: string } }
                   autoFocus
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-2">
-                  <span className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Direct Play URL
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  value={lessonDirectPlayUrl}
-                  onChange={(e) => handleUrlChange(e.target.value)}
-                  placeholder="Dán link video URL vào đây"
-                  className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
-                />
-                <p className="text-xs text-gray-600 mt-1">Hỗ trợ: Bunny Stream embed URL hoặc direct video URL (.mp4)</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-2">
-                  <span className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    Thumbnail
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  value={lessonThumbnail}
-                  onChange={(e) => setLessonThumbnail(e.target.value)}
-                  placeholder="Dán link ảnh thumbnail vào đây"
-                  className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
-                />
-                <p className="text-xs text-gray-600 mt-1">URL ảnh đại diện cho video (JPG, PNG, WebP)</p>
-                {lessonThumbnail.trim() && (
-                  <div className="mt-2 relative rounded-lg overflow-hidden border border-white/10 bg-dark/50" style={{ maxWidth: '200px' }}>
-                    <img
-                      src={lessonThumbnail.trim()}
-                      alt="Thumbnail preview"
-                      className="w-full aspect-video object-cover"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
+
+              {/* VIDEO fields */}
+              {lessonType === 'video' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Direct Play URL
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      value={lessonDirectPlayUrl}
+                      onChange={(e) => handleUrlChange(e.target.value)}
+                      placeholder="Dán link video URL vào đây"
+                      className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
                     />
+                    <p className="text-xs text-gray-600 mt-1">Hỗ trợ: Bunny Stream embed URL hoặc direct video URL (.mp4)</p>
                   </div>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-2 flex items-center gap-2">
-                    Thời lượng
-                    {durationLoading && (
-                      <span className="text-xs text-orange-400 animate-pulse">Đang lấy...</span>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Thumbnail
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      value={lessonThumbnail}
+                      onChange={(e) => setLessonThumbnail(e.target.value)}
+                      placeholder="Dán link ảnh thumbnail vào đây"
+                      className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
+                    />
+                    <p className="text-xs text-gray-600 mt-1">URL ảnh đại diện cho video (JPG, PNG, WebP)</p>
+                    {lessonThumbnail.trim() && (
+                      <div className="mt-2 relative rounded-lg overflow-hidden border border-white/10 bg-dark/50" style={{ maxWidth: '200px' }}>
+                        <img
+                          src={lessonThumbnail.trim()}
+                          alt="Thumbnail preview"
+                          className="w-full aspect-video object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
+                        />
+                      </div>
                     )}
+                  </div>
+                </>
+              )}
+
+              {/* TEXT fields */}
+              {lessonType === 'text' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Nội dung bài học
+                    </span>
+                  </label>
+                  <textarea
+                    value={lessonContent}
+                    onChange={(e) => setLessonContent(e.target.value)}
+                    placeholder="Nhập nội dung bài học (hỗ trợ Markdown)..."
+                    rows={8}
+                    className="w-full px-3 py-2 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors resize-y"
+                  />
+                </div>
+              )}
+
+              {/* PDF fields */}
+              {lessonType === 'pdf' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                      URL tài liệu
+                    </span>
                   </label>
                   <input
                     type="text"
-                    value={lessonDuration}
-                    onChange={(e) => setLessonDuration(e.target.value)}
-                    placeholder="Tự động hoặc VD: 10:30"
-                    className="w-full h-11 px-4 bg-white/5 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-teal transition-colors"
+                    value={lessonDocumentUrl}
+                    onChange={(e) => setLessonDocumentUrl(e.target.value)}
+                    placeholder="Link Google Drive, Dropbox, hoặc URL trực tiếp"
+                    className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
                   />
+                  <p className="text-xs text-gray-600 mt-1">Hỗ trợ: Google Drive, Dropbox, hoặc direct URL (.pdf, .doc)</p>
+                  <div className="mt-2">
+                    <label className="inline-flex items-center gap-2 px-3 py-2 bg-white/5 border border-gray-700 rounded-lg text-sm text-gray-400 hover:border-gray-500 hover:text-gray-300 cursor-pointer transition-colors">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                      </svg>
+                      {uploadingFile ? 'Đang upload...' : 'Upload file'}
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(file);
+                        }}
+                        disabled={uploadingFile}
+                      />
+                    </label>
+                  </div>
                 </div>
+              )}
+
+              {/* IMAGE fields */}
+              {lessonType === 'image' && (
                 <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      URL hình ảnh
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={lessonImageUrl}
+                    onChange={(e) => setLessonImageUrl(e.target.value)}
+                    placeholder="Dán link hình ảnh vào đây"
+                    className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
+                  />
+                  <p className="text-xs text-gray-600 mt-1">URL hình ảnh (JPG, PNG, WebP, GIF)</p>
+                  {lessonImageUrl.trim() && (
+                    <div className="mt-2 relative rounded-lg overflow-hidden border border-white/10 bg-dark/50" style={{ maxWidth: '300px' }}>
+                      <img
+                        src={lessonImageUrl.trim()}
+                        alt="Image preview"
+                        className="w-full object-contain max-h-48"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                {lessonType === 'video' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2 flex items-center gap-2">
+                      Thời lượng
+                      {durationLoading && (
+                        <span className="text-xs text-orange-400 animate-pulse">Đang lấy...</span>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      value={lessonDuration}
+                      onChange={(e) => setLessonDuration(e.target.value)}
+                      placeholder="Tự động hoặc VD: 10:30"
+                      className="w-full h-11 px-4 bg-white/5 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-teal transition-colors"
+                    />
+                  </div>
+                )}
+                <div className={lessonType !== 'video' ? 'col-span-2' : ''}>
                   <label className="block text-sm font-medium text-gray-400 mb-2">Cấp độ</label>
                   <select
                     value={lessonLevel}
@@ -1198,12 +1374,39 @@ export default function CourseContentPage({ params }: { params: { id: string } }
       {modal.kind === 'editLesson' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-dark/70 backdrop-blur-sm" onClick={() => setModal({ kind: 'none' })} />
-          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-xl w-full max-w-md p-6">
+          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-white mb-1">Chỉnh sửa bài học</h3>
             <p className="text-sm text-gray-400 mb-4">
               Trong chương: {getChapterTitle(modal.chapterId)}
             </p>
             <div className="space-y-4 mb-6">
+              {/* Lesson Type Selector */}
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">Loại bài học</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {([
+                    { value: 'video' as const, icon: '\uD83C\uDFAC', label: 'Video' },
+                    { value: 'text' as const, icon: '\uD83D\uDCDD', label: 'Text' },
+                    { value: 'pdf' as const, icon: '\uD83D\uDCC4', label: 'PDF' },
+                    { value: 'image' as const, icon: '\uD83D\uDDBC\uFE0F', label: 'Hình ảnh' },
+                  ]).map((t) => (
+                    <button
+                      key={t.value}
+                      type="button"
+                      onClick={() => setLessonType(t.value)}
+                      className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-lg border text-sm font-medium transition-all ${
+                        lessonType === t.value
+                          ? 'bg-teal/15 border-teal text-teal'
+                          : 'bg-white/5 border-gray-700 text-gray-400 hover:border-gray-500'
+                      }`}
+                    >
+                      <span className="text-lg">{t.icon}</span>
+                      <span>{t.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-2">Tiêu đề bài học</label>
                 <input
@@ -1215,70 +1418,173 @@ export default function CourseContentPage({ params }: { params: { id: string } }
                   autoFocus
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-2">
-                  <span className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Direct Play URL
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  value={lessonDirectPlayUrl}
-                  onChange={(e) => handleUrlChange(e.target.value)}
-                  placeholder="Dán link video URL vào đây"
-                  className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
-                />
-                <p className="text-xs text-gray-600 mt-1">Hỗ trợ: Bunny Stream embed URL hoặc direct video URL (.mp4)</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-2">
-                  <span className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    Thumbnail
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  value={lessonThumbnail}
-                  onChange={(e) => setLessonThumbnail(e.target.value)}
-                  placeholder="Dán link ảnh thumbnail vào đây"
-                  className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
-                />
-                <p className="text-xs text-gray-600 mt-1">URL ảnh đại diện cho video (JPG, PNG, WebP)</p>
-                {lessonThumbnail.trim() && (
-                  <div className="mt-2 relative rounded-lg overflow-hidden border border-white/10 bg-dark/50" style={{ maxWidth: '200px' }}>
-                    <img
-                      src={lessonThumbnail.trim()}
-                      alt="Thumbnail preview"
-                      className="w-full aspect-video object-cover"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
+
+              {/* VIDEO fields */}
+              {lessonType === 'video' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Direct Play URL
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      value={lessonDirectPlayUrl}
+                      onChange={(e) => handleUrlChange(e.target.value)}
+                      placeholder="Dán link video URL vào đây"
+                      className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
                     />
+                    <p className="text-xs text-gray-600 mt-1">Hỗ trợ: Bunny Stream embed URL hoặc direct video URL (.mp4)</p>
                   </div>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-2 flex items-center gap-2">
-                    Thời lượng
-                    {durationLoading && (
-                      <span className="text-xs text-orange-400 animate-pulse">Đang lấy...</span>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Thumbnail
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      value={lessonThumbnail}
+                      onChange={(e) => setLessonThumbnail(e.target.value)}
+                      placeholder="Dán link ảnh thumbnail vào đây"
+                      className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
+                    />
+                    <p className="text-xs text-gray-600 mt-1">URL ảnh đại diện cho video (JPG, PNG, WebP)</p>
+                    {lessonThumbnail.trim() && (
+                      <div className="mt-2 relative rounded-lg overflow-hidden border border-white/10 bg-dark/50" style={{ maxWidth: '200px' }}>
+                        <img
+                          src={lessonThumbnail.trim()}
+                          alt="Thumbnail preview"
+                          className="w-full aspect-video object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
+                        />
+                      </div>
                     )}
+                  </div>
+                </>
+              )}
+
+              {/* TEXT fields */}
+              {lessonType === 'text' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Nội dung bài học
+                    </span>
+                  </label>
+                  <textarea
+                    value={lessonContent}
+                    onChange={(e) => setLessonContent(e.target.value)}
+                    placeholder="Nhập nội dung bài học (hỗ trợ Markdown)..."
+                    rows={8}
+                    className="w-full px-3 py-2 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors resize-y"
+                  />
+                </div>
+              )}
+
+              {/* PDF fields */}
+              {lessonType === 'pdf' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                      URL tài liệu
+                    </span>
                   </label>
                   <input
                     type="text"
-                    value={lessonDuration}
-                    onChange={(e) => setLessonDuration(e.target.value)}
-                    placeholder="Tự động hoặc VD: 10:30"
-                    className="w-full h-11 px-4 bg-white/5 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-teal transition-colors"
+                    value={lessonDocumentUrl}
+                    onChange={(e) => setLessonDocumentUrl(e.target.value)}
+                    placeholder="Link Google Drive, Dropbox, hoặc URL trực tiếp"
+                    className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
                   />
+                  <p className="text-xs text-gray-600 mt-1">Hỗ trợ: Google Drive, Dropbox, hoặc direct URL (.pdf, .doc)</p>
+                  <div className="mt-2">
+                    <label className="inline-flex items-center gap-2 px-3 py-2 bg-white/5 border border-gray-700 rounded-lg text-sm text-gray-400 hover:border-gray-500 hover:text-gray-300 cursor-pointer transition-colors">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                      </svg>
+                      {uploadingFile ? 'Đang upload...' : 'Upload file'}
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(file);
+                        }}
+                        disabled={uploadingFile}
+                      />
+                    </label>
+                  </div>
                 </div>
+              )}
+
+              {/* IMAGE fields */}
+              {lessonType === 'image' && (
                 <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      URL hình ảnh
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={lessonImageUrl}
+                    onChange={(e) => setLessonImageUrl(e.target.value)}
+                    placeholder="Dán link hình ảnh vào đây"
+                    className="w-full h-10 px-3 bg-dark/50 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-teal transition-colors font-mono"
+                  />
+                  <p className="text-xs text-gray-600 mt-1">URL hình ảnh (JPG, PNG, WebP, GIF)</p>
+                  {lessonImageUrl.trim() && (
+                    <div className="mt-2 relative rounded-lg overflow-hidden border border-white/10 bg-dark/50" style={{ maxWidth: '300px' }}>
+                      <img
+                        src={lessonImageUrl.trim()}
+                        alt="Image preview"
+                        className="w-full object-contain max-h-48"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                {lessonType === 'video' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-2 flex items-center gap-2">
+                      Thời lượng
+                      {durationLoading && (
+                        <span className="text-xs text-orange-400 animate-pulse">Đang lấy...</span>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      value={lessonDuration}
+                      onChange={(e) => setLessonDuration(e.target.value)}
+                      placeholder="Tự động hoặc VD: 10:30"
+                      className="w-full h-11 px-4 bg-white/5 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-teal transition-colors"
+                    />
+                  </div>
+                )}
+                <div className={lessonType !== 'video' ? 'col-span-2' : ''}>
                   <label className="block text-sm font-medium text-gray-400 mb-2">Cấp độ</label>
                   <select
                     value={lessonLevel}

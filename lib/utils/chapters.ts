@@ -1,14 +1,19 @@
 import type { MemberLevel, AccessTier } from '@/lib/types';
 
+export type ChapterLessonType = 'video' | 'text' | 'pdf' | 'image';
+
 export interface Lesson {
   id: string;
   title: string;
   duration: string;
   requiredLevel: MemberLevel;
   accessTier: AccessTier;
-  lessonType: string;
+  lessonType: ChapterLessonType;
   directPlayUrl: string;
   thumbnail?: string;
+  content?: string;
+  documentUrl?: string;
+  imageUrl?: string;
   /** @deprecated Use accessTier instead */
   isPreview?: boolean;
 }
@@ -84,6 +89,9 @@ export function normalizeChapters(chapters: any[]): Chapter[] {
           : '')
       ),
       thumbnail: ls.thumbnail || '',
+      content: ls.content || '',
+      documentUrl: ls.documentUrl || '',
+      imageUrl: ls.imageUrl || '',
     })),
   }));
 }

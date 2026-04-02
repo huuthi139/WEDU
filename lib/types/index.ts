@@ -14,7 +14,7 @@ export type SystemRole = 'admin' | 'instructor' | 'student';
 export type AccessTier = 'free' | 'premium' | 'vip';
 
 /** Lesson content type */
-export type LessonType = 'video' | 'text' | 'pdf' | 'audio' | 'quiz' | 'live' | 'replay';
+export type LessonType = 'video' | 'text' | 'pdf' | 'audio' | 'quiz' | 'live' | 'replay' | 'image';
 
 /** Course access source */
 export type AccessSource = 'manual' | 'order' | 'gift' | 'admin' | 'scholarship' | 'system';
