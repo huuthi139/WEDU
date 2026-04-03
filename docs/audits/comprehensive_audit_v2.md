@@ -382,6 +382,8 @@ Top offenders:
 | P2-6 | Add image format optimization | `next.config.js` | `formats: ['image/avif', 'image/webp']` |
 | P2-7 | Batch insert in chapters POST | `app/api/chapters/[courseId]/route.ts` | Replace loop with batch |
 | P2-8 | Drop unused tables | `course_chapters`, `course_sessions` | Migration to drop |
+| P2-9 | Add FK constraint lesson_progress.lesson_id | `supabase/migrations/` | `lesson_id UUID REFERENCES lessons(id)` |
+| P2-10 | Track migration status per course | `app/api/chapters/[courseId]/route.ts` | Add migrated flag or remove JSONB after migrate |
 
 ### P3 — Technical debt
 
@@ -395,6 +397,66 @@ Top offenders:
 | P3-6 | Add in-memory rate limit fallback | When Redis unavailable |
 | P3-7 | Remove legacy `chapters` table usage | After confirming all data migrated |
 | P3-8 | Add bundle analyzer | `next.config.js` webpack config |
+
+---
+
+---
+
+## 9. LESSONS & CHAPTERS SYSTEM
+
+### 9.1 Content Hierarchy — 3 Systems Song Song
+| System | Tables | Status | Dùng ở đâu |
+|--------|--------|--------|-------------|
+| JSONB blob | `chapters` | Legacy | `lib/supabase/chapters.ts` — fallback #2 |
+| Normalized | `course_sections` + `lessons` | Active (source of truth) | `lib/supabase/sections.ts`, chapters API |
+| Phase 4 | `course_chapters` + `course_sessions` | Created but unused | Migration 004 only |
+
+**Fallback chain** trong `app/api/chapters/[courseId]/route.ts`:
+```
+1. getSectionsByCourse() → normalized tables
+2. getChaptersByCourse() → JSONB chapters table
+3. FALLBACK_CHAPTERS → hardcoded in lib/fallback-chapters.ts
+```
+Background migration `migrateJsonbToNormalized()` chạy tự động khi fallback #2 hoặc #3 triggered.
+
+### 9.2 Migration Status: INCOMPLETE
+- Auto-migration chạy per-course khi user truy cập lần đầu
+- Manual script `scripts/migrate-chapters-to-normalized.ts` chỉ xử lý course '1' và '6'
+- **Không có tracking** course nào đã migrate vs chưa
+- JSONB data không bị xoá sau migration (safe nhưng confusing)
+
+### 9.3 Fallback Data Still Active
+- `lib/fallback-chapters.ts`: Hardcoded chapters cho course '1' (14 lessons) và '6' (123+ lessons)
+- `lib/fallback-data.ts`: 15 course definitions — **DEAD FILE** (not imported anywhere)
+- Fallback data không tự update khi Supabase data thay đổi
+
+### 9.4 Video Playback
+| Provider | URL Formats Supported | Normalization |
+|----------|----------------------|---------------|
+| Bunny.net | `iframe.mediadelivery.net/embed/{lib}/{id}`, `player.mediadelivery.net`, `video.bunnycdn.com` | `normalizeBunnyEmbedUrl()` in `lib/utils/chapters.ts:48` |
+| YouTube | `youtube.com/watch?v=`, `youtube.com/embed/`, `youtu.be/` | Parsed in migration script |
+
+**Content URL routing** (`app/api/chapters/[courseId]/route.ts:279-283`):
+- `video` → `directPlayUrl`
+- `pdf` → `documentUrl` (fallback to `directPlayUrl`)
+- `image` → `imageUrl` (fallback to `directPlayUrl`)
+- `text` → `content` field
+- Tất cả stored trong `direct_play_url` column — phân biệt bằng `lesson_type`
+
+### 9.5 Progress Tracking
+- `lesson_progress`: Per-lesson với optimistic concurrency (version field)
+- Autosave mỗi 20s từ frontend (`hooks/useLessonProgress.ts:81`)
+- `course_progress`: Aggregated, recalculated khi markLessonComplete()
+- **Issue**: `lesson_id` là TEXT, không có FK → orphaned records nếu lesson bị xoá
+
+### 9.6 Data Model Inconsistencies
+| Issue | Chi tiết | Risk |
+|-------|----------|------|
+| Access tier naming | DB: `'free'/'premium'/'vip'` vs Legacy: `'Free'/'Premium'/'VIP'` | Case sensitivity bugs |
+| `is_preview` vs `access_tier` | Hai field cùng control "free access" | Redundant logic |
+| `lesson_id` no FK | `lesson_progress.lesson_id` TEXT, no constraint | Orphaned progress |
+| Duration format | `lessons.duration` MM:SS string + `duration_seconds` INT | Parsing failures |
+| `video_ref_id` unused | Migration 008 added FK to videos table, never populated | Dead column |
 
 ---
 
