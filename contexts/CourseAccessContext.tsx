@@ -148,19 +148,25 @@ export function CourseAccessProvider({ children }: { children: ReactNode }) {
   }, [orders, isLoaded]);
 
   // Course access helpers (source of truth: course_access table)
+  const isAccessValid = useCallback((ca: CourseAccess): boolean => {
+    if (ca.status !== 'active') return false;
+    if (ca.expiresAt && new Date(ca.expiresAt) < new Date()) return false;
+    return true;
+  }, []);
+
   const hasAccess = useCallback((courseId: string) => {
-    return courseAccessList.some(ca => ca.courseId === courseId && ca.status === 'active');
-  }, [courseAccessList]);
+    return courseAccessList.some(ca => ca.courseId === courseId && isAccessValid(ca));
+  }, [courseAccessList, isAccessValid]);
 
   const getAccessTier = useCallback((courseId: string): AccessTier => {
-    const access = courseAccessList.find(ca => ca.courseId === courseId && ca.status === 'active');
+    const access = courseAccessList.find(ca => ca.courseId === courseId && isAccessValid(ca));
     if (!access) return 'free';
     return access.accessTier;
-  }, [courseAccessList]);
+  }, [courseAccessList, isAccessValid]);
 
   const getAccess = useCallback((courseId: string): CourseAccess | null => {
-    return courseAccessList.find(ca => ca.courseId === courseId && ca.status === 'active') || null;
-  }, [courseAccessList]);
+    return courseAccessList.find(ca => ca.courseId === courseId && isAccessValid(ca)) || null;
+  }, [courseAccessList, isAccessValid]);
 
   // Enroll in free course only (creates enrollment record for progress tracking)
   const enrollCourse = useCallback((courseId: string) => {
@@ -187,10 +193,10 @@ export function CourseAccessProvider({ children }: { children: ReactNode }) {
 
   const isEnrolled = useCallback((courseId: string) => {
     // Check course_access first (source of truth for paid access)
-    if (courseAccessList.some(ca => ca.courseId === courseId && ca.status === 'active')) return true;
+    if (courseAccessList.some(ca => ca.courseId === courseId && isAccessValid(ca))) return true;
     // Fallback to legacy enrollments (for free courses)
     return enrollments.some(e => e.courseId === courseId);
-  }, [courseAccessList, enrollments]);
+  }, [courseAccessList, enrollments, isAccessValid]);
 
   const getProgress = useCallback((courseId: string) => {
     return enrollments.find(e => e.courseId === courseId)?.progress ?? 0;

@@ -186,7 +186,8 @@ export function isEnrolledInCourse(
   courseId: string
 ): boolean {
   if (!courseAccessList) return false;
-  return courseAccessList.some(ca => ca.courseId === courseId && ca.status === 'active');
+  return courseAccessList.some(ca => ca.courseId === courseId && ca.status === 'active' &&
+    (!ca.expiresAt || new Date(ca.expiresAt) >= new Date()));
 }
 
 /**
@@ -198,5 +199,6 @@ export function getAccessForCourse(
   courseId: string
 ): CourseAccess | undefined {
   if (!courseAccessList) return undefined;
-  return courseAccessList.find(ca => ca.courseId === courseId && ca.status === 'active');
+  return courseAccessList.find(ca => ca.courseId === courseId && ca.status === 'active' &&
+    (!ca.expiresAt || new Date(ca.expiresAt) >= new Date()));
 }

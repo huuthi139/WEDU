@@ -51,7 +51,7 @@ export async function getCourseAccessByUser(
 
 /**
  * Get the effective access tier for a user on a specific course.
- * Returns 'free' if no access record exists (everyone can access free content).
+ * Returns 'free' if no access record exists, or if access has expired.
  */
 export async function getEffectiveAccessTier(
   userId: string,
@@ -59,6 +59,10 @@ export async function getEffectiveAccessTier(
 ): Promise<AccessTier> {
   const access = await getCourseAccess(userId, courseId);
   if (!access) return 'free';
+  // Check expiration: if expires_at is set and in the past, treat as free
+  if (access.expires_at && new Date(access.expires_at) < new Date()) {
+    return 'free';
+  }
   return access.access_tier as AccessTier;
 }
 
