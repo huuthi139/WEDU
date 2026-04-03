@@ -148,8 +148,13 @@ async function importCourses(
     if (category) courseData.category = category;
 
     // Optional numeric fields
+    // Vietnamese prices use dots as thousands separators (e.g. "1.868.000")
+    // so strip dots and commas before parsing to avoid parseFloat("1.868.000") = 1.868
     const priceRaw = getCol(row, 'price', 'Price', 'Giá');
-    if (priceRaw) courseData.price = parseFloat(priceRaw.replace(/[^0-9.-]/g, '')) || 0;
+    if (priceRaw) {
+      const cleaned = priceRaw.replace(/[.,\s]/g, '').replace(/[^0-9-]/g, '');
+      courseData.price = parseInt(cleaned, 10) || 0;
+    }
 
     const memberLevel = getCol(row, 'member_level', 'memberLevel', 'MemberLevel', 'Member Level');
     if (memberLevel) courseData.member_level = memberLevel;
