@@ -676,6 +676,348 @@ async function importCourseAccess(
 }
 
 // =============================================
+// PHASE D: IMPORT ORDERS (Đơn hàng / Học viên đã mua)
+// =============================================
+
+async function importOrders(
+  sheetId: string,
+  dryRun: boolean,
+  upgradeOnly: boolean,
+  actorUserId?: string,
+): Promise<ImportStats> {
+  const supabase = getSupabaseAdmin();
+  const stats = emptyStats();
+  const auditEntries: AuditEntry[] = [];
+
+  const rows = await fetchSheetTab(sheetId, 'orders');
+  stats.total = rows.length;
+
+  if (rows.length === 0) {
+    stats.errors.push({ row: 0, field: 'info', value: 'orders', message: 'Tab "orders" không tìm thấy hoặc trống' });
+    return stats;
+  }
+
+  // Column mapping helpers
+  const getEmail = (row: Record<string, string>) =>
+    normalizeEmail(getCol(row, 'Email', 'email', 'E-mail'));
+  const getName = (row: Record<string, string>) =>
+    getCol(row, 'Tên', 'Ten', 'Name', 'Họ tên', 'Ho ten', 'name', 'full_name').trim();
+  const getPhone = (row: Record<string, string>) =>
+    getCol(row, 'SĐT', 'SDT', 'Phone', 'Số điện thoại', 'So dien thoai', 'phone').trim();
+  const getCourseCode = (row: Record<string, string>) =>
+    getCol(row, 'Mã khoá học', 'Ma khoa', 'Course ID', 'course_code', 'Mã khóa học', 'courseCode', 'ID khóa').trim();
+  const getTier = (row: Record<string, string>) =>
+    getCol(row, 'Hạng', 'Level', 'access_tier', 'Tier', 'level', 'tier', 'Hang');
+  const getActivatedAt = (row: Record<string, string>) =>
+    getCol(row, 'Ngày đăng ký', 'activated_at', 'Ngày mua', 'Ngay dang ky', 'Ngay mua');
+  const getStatus = (row: Record<string, string>) =>
+    getCol(row, 'Trạng thái', 'Status', 'status', 'Trang thai');
+  const getNote = (row: Record<string, string>) =>
+    getCol(row, 'Ghi chú', 'Note', 'note', 'Ghi chu');
+
+  // Detect duplicate email+courseCode pairs in file
+  const duplicates = detectDuplicateRows(rows, (row) => {
+    const email = getEmail(row);
+    const code = getCourseCode(row);
+    return email && code ? `${email}::${code}` : '';
+  });
+  for (const [key, rowNums] of duplicates) {
+    stats.errors.push({
+      row: rowNums[0],
+      field: 'duplicate',
+      value: key,
+      message: `Duplicate email+mã khoá "${key}" tại các dòng: ${rowNums.join(', ')}. Chỉ giữ dòng cuối.`,
+    });
+  }
+
+  // Caches
+  const userCache = new Map<string, string>();
+  const courseCache = new Map<string, string>();
+  const processedPairs = new Set<string>();
+
+  // Track extra stats for orders
+  let usersCreated = 0;
+  let usersExisted = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2; // 1-indexed + header
+
+    const email = getEmail(row);
+    const name = getName(row);
+    const phone = getPhone(row);
+    const courseCode = getCourseCode(row);
+    const tierRaw = getTier(row);
+    const activatedAtRaw = getActivatedAt(row);
+    const statusRaw = getStatus(row);
+    const note = getNote(row);
+
+    // --- Validation ---
+    if (!email) {
+      stats.invalid++;
+      stats.errors.push({ row: rowNum, field: 'email', value: '', message: 'Email không được rỗng' });
+      continue;
+    }
+
+    if (!isValidEmail(email)) {
+      stats.invalid++;
+      stats.errors.push({ row: rowNum, field: 'email', value: email, message: 'Email không hợp lệ' });
+      continue;
+    }
+
+    if (!courseCode) {
+      stats.invalid++;
+      stats.errors.push({ row: rowNum, field: 'course_code', value: '', message: 'Mã khoá học không được rỗng' });
+      continue;
+    }
+
+    const tier = normalizeAccessTier(tierRaw || 'premium');
+    if (!tier) {
+      stats.invalid++;
+      stats.errors.push({ row: rowNum, field: 'access_tier', value: tierRaw, message: `Hạng không hợp lệ: "${tierRaw}". Chỉ chấp nhận: free, premium, vip` });
+      continue;
+    }
+
+    // Skip duplicate email+course in same file (keep last)
+    const pairKey = `${email}::${courseCode}`;
+    if (processedPairs.has(pairKey)) {
+      stats.skipped++;
+      continue;
+    }
+    // Check if there's a later row with same pair → skip this one
+    const dupInfo = duplicates.get(pairKey);
+    if (dupInfo && rowNum < dupInfo[dupInfo.length - 1]) {
+      stats.skipped++;
+      continue;
+    }
+    processedPairs.add(pairKey);
+
+    const accessStatus = normalizeAccessStatus(statusRaw);
+    const activatedAt = parseDate(activatedAtRaw) || new Date().toISOString();
+
+    stats.valid++;
+    if (dryRun) continue;
+
+    // --- Step A: Resolve or create user ---
+    let userId = userCache.get(email);
+    if (!userId) {
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id, member_level')
+        .eq('email', email)
+        .limit(1)
+        .single();
+
+      if (existingUser) {
+        userId = existingUser.id as string;
+        userCache.set(email, userId);
+        usersExisted++;
+      } else {
+        // Create new user
+        const now = new Date().toISOString();
+        const memberLevel = tier === 'vip' ? 'VIP' : tier === 'premium' ? 'Premium' : 'Free';
+        const { data: newUser, error: createErr } = await supabase
+          .from('users')
+          .insert({
+            email,
+            name: name || email.split('@')[0],
+            phone: phone || '',
+            password_hash: LOCKED_PASSWORD_SENTINEL,
+            role: 'user',
+            system_role: 'student',
+            member_level: memberLevel,
+            status: 'active',
+            created_at: now,
+            updated_at: now,
+          })
+          .select('id')
+          .single();
+
+        if (createErr || !newUser) {
+          stats.errors.push({ row: rowNum, field: 'user', value: email, message: `Không thể tạo user: ${createErr?.message || 'unknown'}` });
+          continue;
+        }
+
+        userId = newUser.id as string;
+        userCache.set(email, userId);
+        usersCreated++;
+        stats.errors.push({ row: rowNum, field: 'info', value: email, message: `Tạo user mới (${name || email.split('@')[0]}) - cần "Quên mật khẩu" để kích hoạt` });
+
+        auditEntries.push({
+          actorUserId,
+          actionType: 'user_upsert',
+          targetTable: 'users',
+          targetId: userId,
+          entityKey: email,
+          newValue: { email, name: name || email.split('@')[0], member_level: memberLevel },
+          status: 'success',
+        });
+      }
+    } else {
+      usersExisted++;
+    }
+
+    // --- Step B: Resolve course ---
+    let courseId = courseCache.get(courseCode);
+    if (!courseId) {
+      const { data: course } = await supabase
+        .from('courses')
+        .select('id')
+        .eq('id', courseCode)
+        .limit(1)
+        .single();
+
+      if (course) {
+        courseId = course.id;
+      } else {
+        // Try slug fallback
+        const { data: courseBySlug } = await supabase
+          .from('courses')
+          .select('id')
+          .eq('slug', courseCode)
+          .limit(1)
+          .single();
+
+        if (courseBySlug) {
+          courseId = courseBySlug.id;
+        }
+      }
+
+      if (!courseId) {
+        stats.errors.push({ row: rowNum, field: 'course_code', value: courseCode, message: `Không tìm thấy khoá học với ID/slug: "${courseCode}"` });
+        continue;
+      }
+
+      courseCache.set(courseCode, courseId);
+    }
+
+    // --- Step C: Upsert course_access ---
+    const { data: existingAccess } = await supabase
+      .from('course_access')
+      .select('id, access_tier, status')
+      .eq('user_id', userId)
+      .eq('course_id', courseId)
+      .limit(1)
+      .single();
+
+    if (existingAccess) {
+      const currentTier = (existingAccess.access_tier || 'free') as 'free' | 'premium' | 'vip';
+      const mergedTier = mergeAccessTier(currentTier, tier as 'free' | 'premium' | 'vip', upgradeOnly);
+
+      const updates: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (mergedTier !== currentTier) updates.access_tier = mergedTier;
+      if (accessStatus === 'active' && existingAccess.status !== 'active') {
+        updates.status = 'active';
+        updates.activated_at = activatedAt;
+      }
+
+      if (Object.keys(updates).length > 1) {
+        const { error } = await supabase
+          .from('course_access')
+          .update(updates)
+          .eq('id', existingAccess.id);
+
+        if (error) {
+          stats.errors.push({ row: rowNum, field: 'update', value: `${email}:${courseCode}`, message: error.message });
+        } else {
+          stats.updated++;
+          auditEntries.push({
+            actorUserId,
+            actionType: 'course_access_upsert',
+            targetTable: 'course_access',
+            targetId: existingAccess.id,
+            entityKey: `${email}::${courseCode}`,
+            oldValue: { access_tier: currentTier, status: existingAccess.status },
+            newValue: updates as Record<string, unknown>,
+            status: 'success',
+          });
+        }
+      } else {
+        stats.skipped++;
+      }
+    } else {
+      // Insert new course_access
+      const insertData: Record<string, unknown> = {
+        user_id: userId,
+        course_id: courseId,
+        access_tier: tier,
+        source: 'import',
+        status: accessStatus,
+        activated_at: activatedAt,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      if (note) insertData.notes = note;
+
+      const { error } = await supabase.from('course_access').insert(insertData);
+
+      if (error) {
+        stats.errors.push({ row: rowNum, field: 'insert', value: `${email}:${courseCode}`, message: error.message });
+      } else {
+        stats.inserted++;
+        auditEntries.push({
+          actorUserId,
+          actionType: 'course_access_upsert',
+          targetTable: 'course_access',
+          entityKey: `${email}::${courseCode}`,
+          newValue: insertData as Record<string, unknown>,
+          status: 'success',
+        });
+      }
+    }
+
+    // --- Step D: Upgrade user member_level if needed ---
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('member_level')
+      .eq('id', userId)
+      .limit(1)
+      .single();
+
+    if (userRow) {
+      const currentLevel = (userRow.member_level || 'Free').toLowerCase();
+      const newLevel = tier === 'vip' ? 'vip' : tier === 'premium' ? 'premium' : 'free';
+      const levelRank: Record<string, number> = { free: 0, premium: 1, vip: 2 };
+
+      if ((levelRank[newLevel] || 0) > (levelRank[currentLevel] || 0)) {
+        const displayLevel = newLevel === 'vip' ? 'VIP' : newLevel === 'premium' ? 'Premium' : 'Free';
+        const { error } = await supabase
+          .from('users')
+          .update({ member_level: displayLevel, updated_at: new Date().toISOString() })
+          .eq('id', userId);
+
+        if (!error) {
+          stats.errors.push({
+            row: rowNum,
+            field: 'info',
+            value: email,
+            message: `Upgrade member_level: ${userRow.member_level} → ${displayLevel}`,
+          });
+        }
+      }
+    }
+  }
+
+  // Add summary info
+  stats.errors.push({
+    row: 0,
+    field: 'info',
+    value: 'summary',
+    message: `Users mới tạo: ${usersCreated} | Users đã tồn tại: ${usersExisted}`,
+  });
+
+  if (auditEntries.length > 0) {
+    writeAuditLogBatch(auditEntries).catch(() => {});
+  }
+
+  return stats;
+}
+
+// =============================================
 // POST /api/admin/import-sheet
 // =============================================
 
@@ -737,6 +1079,11 @@ export async function POST(request: NextRequest) {
     // Phase C: Import course_access (depends on A and B)
     if (tables.includes('course_access')) {
       results.course_access = await importCourseAccess(configSheetId, dryRun, upgradeOnly, actorUserId);
+    }
+
+    // Phase D: Import orders (đơn hàng / học viên đã mua)
+    if (tables.includes('orders')) {
+      results.orders = await importOrders(configSheetId, dryRun, upgradeOnly, actorUserId);
     }
 
     // Build summary
@@ -803,7 +1150,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Fetch first few rows from each tab to preview
-  const tabs = ['students', 'courses', 'course_access'];
+  const tabs = ['students', 'courses', 'course_access', 'orders'];
   const preview: Record<string, { found: boolean; rowCount: number; columns: string[]; sample?: Record<string, string> }> = {};
 
   for (const tab of tabs) {
@@ -839,10 +1186,11 @@ export async function GET(request: NextRequest) {
     sheetId,
     preview,
     instructions: {
-      tabs_required: ['students', 'courses', 'course_access'],
+      tabs_required: ['students', 'courses', 'course_access', 'orders (tùy chọn)'],
       students_columns: ['email (bắt buộc)', 'full_name', 'phone', 'system_role', 'status', 'password (tùy chọn - nếu trống, user cần dùng "Quên mật khẩu" để kích hoạt)'],
       courses_columns: ['course_code (bắt buộc)', 'title (bắt buộc)', 'slug', 'status', 'visibility', 'short_description'],
       course_access_columns: ['email (bắt buộc)', 'course_code (bắt buộc)', 'access_tier', 'status', 'activated_at', 'expires_at', 'source'],
+      orders_columns: ['Email (bắt buộc)', 'Mã khoá học (bắt buộc)', 'Tên', 'SĐT', 'Khoá học', 'Hạng', 'Ngày đăng ký', 'Trạng thái', 'Ghi chú'],
     },
   });
 }
