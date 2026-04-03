@@ -95,7 +95,7 @@ function CheckoutContent() {
     try {
       // Submit order to Supabase via API route
       // This creates the order AND grants course_access on the server
-      const { submitOrder } = await import('@/lib/googleSheets');
+      const { submitOrder } = await import('@/lib/orders');
       await submitOrder(orderData);
 
       // Track order in local state (for UI display)

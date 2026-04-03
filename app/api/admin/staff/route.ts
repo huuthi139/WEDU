@@ -25,7 +25,7 @@ export async function GET() {
 
   try {
     const { getAllUsers } = await import('@/lib/supabase/users');
-    const allUsers = await getAllUsers();
+    const { users: allUsers } = await getAllUsers({ limit: 500 });
 
     const staff = allUsers.map(u => ({
       id: u.id,

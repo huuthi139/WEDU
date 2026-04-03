@@ -41,11 +41,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const users = await getAllUsers();
+  const { total } = await getAllUsers({ limit: 1 });
 
   return NextResponse.json({
     success: true,
-    supabaseCount: users.length,
+    supabaseCount: total,
     message: 'Supabase là nguồn dữ liệu chính. Dùng /api/admin/import-sheet để import từ Google Sheets.',
   });
 }

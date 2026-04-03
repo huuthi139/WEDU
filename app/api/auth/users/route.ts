@@ -23,7 +23,7 @@ async function handleFetchUsers() {
   }
 
   try {
-    const allUsers = await getAllUsers();
+    const { users: allUsers } = await getAllUsers({ limit: 500 });
 
     // Fetch all active course_access records with course titles
     const supabase = getSupabaseAdmin();

@@ -22,8 +22,8 @@ export async function POST(request: Request) {
       return ERR.VALIDATION('Email không hợp lệ');
     }
 
-    if (!password || password.length < 6) {
-      return ERR.VALIDATION('Mật khẩu phải có ít nhất 6 ký tự');
+    if (!password || password.length < 8) {
+      return ERR.VALIDATION('Mật khẩu phải có ít nhất 8 ký tự');
     }
 
     const hashedPassword = await hashPassword(password);
