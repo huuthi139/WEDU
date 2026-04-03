@@ -322,15 +322,16 @@ Google Sheet → webhook /api/webhook/sheet-sync (DEPRECATED)
 | 9 | `app/profile/page.tsx` | 509 | Tách profile sections |
 | 10 | `app/admin/course-access/page.tsx` | 500 | Tách table + form components |
 
-### console.log trong Production Code
-| File | Count | Action |
-|------|-------|--------|
-| `lib/email/send.ts` | 6 | Replace với logger |
-| `lib/supabase/bootstrap.ts` | 2 | Replace với logger |
-| `lib/supabase/users.ts` | 1 | Replace với logger |
-| `app/admin/page.tsx` | Multiple | Remove |
-| `app/api/admin/course-access/route.ts` | Multiple | Replace với logger |
-| `app/api/chapters/[courseId]/route.ts` | 3 | Replace với logger |
+### console.log trong Production Code (149+ statements)
+| File | Count | Severity | Action |
+|------|-------|----------|--------|
+| `app/api/admin/course-access/route.ts` | 5+ | HIGH — logs user IDs, emails | Remove debug logs immediately |
+| `app/admin/page.tsx` | 4+ | HIGH — debug logs | Remove |
+| `lib/email/send.ts` | 6 | MEDIUM — logs email recipients | Replace với logger |
+| `lib/supabase/bootstrap.ts` | 2 | LOW | Replace với logger |
+| `lib/supabase/users.ts` | 1 | LOW | Replace với logger |
+| `app/api/chapters/[courseId]/route.ts` | 3 | LOW | Replace với logger |
+| `scripts/*.ts` | 30+ | OK — scripts | Acceptable |
 
 ### TypeScript `any` Usage: 52 instances
 Top offenders:
@@ -354,7 +355,23 @@ Top offenders:
 | `scripts/migrate-curl.ts` | Migration script, done |
 | `public/login.html` | Static HTML login page — replaced by Next.js |
 
-### Hardcoded Values
+### Unhandled Promises (16 instances)
+| Pattern | File | Risk |
+|---------|------|------|
+| `.catch(() => {})` | `app/api/chapters/[courseId]/route.ts:141,156` | Migration errors silently swallowed |
+| `.catch(() => {})` | `app/api/auth/register/route.ts:51` | Welcome email failure silent |
+| Silent auth catch | `app/api/admin/import-sheet/route.ts:41-43` | JWT errors → `isAdmin: false` — potential auth bypass |
+
+### Hardcoded Magic Numbers (35+ instances)
+| Value | Files | Should be |
+|-------|-------|-----------|
+| `10000`, `20000` (timeout ms) | Multiple API routes | `TIMEOUTS.fetch`, `TIMEOUTS.sheet` |
+| `10`, `5`, `100` (rate limits) | `lib/rate-limit.ts` | `RATE_LIMITS.login` etc. |
+| `86400000` (24h ms) | Dashboard | `MS_PER_DAY` constant |
+| `10000000`, `3000000` (price) | Course filters | Config constant |
+| `'wedu.vn'` | 3 files | Single `APP_DOMAIN` constant |
+
+### Hardcoded Secrets/URLs
 | File:Line | Value | Fix |
 |-----------|-------|-----|
 | `app/api/auth/forgot-password/route.ts:5` | `'fallback-secret'` | Remove |
@@ -362,6 +379,13 @@ Top offenders:
 | `lib/email/send.ts:29` | `'https://wedu.vn'` as fallback | Move to config |
 | `app/api/auth/login/route.ts:33` | `'@wedu.vn'` domain | Move to config constant |
 | `lib/auth/jwt.ts:20` | `'7d'` expiration | Move to config |
+
+### Duplicate Code
+| Pattern | Locations | Fix |
+|---------|-----------|-----|
+| JWT admin verification | `import-sheet/route.ts`, `course-access/route.ts`, `middleware.ts` | Extract to `lib/auth/verify-admin.ts` |
+| Supabase query building | `course-access/route.ts`, `videos/route.ts` | Extract shared query builder |
+| Config getters | `lib/config.ts` — `getSheetId()/getSheetIdSafe()` duplicate pattern | Consolidate |
 
 ---
 
