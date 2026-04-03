@@ -147,8 +147,9 @@
 | `enrollments` | Email-based, replaced by `course_access` | Deprecate, migrate remaining refs |
 | `course_enrollments` | User-id based, replaced by `course_access` | Deprecate |
 | `chapters` | JSONB blob, replaced by `course_sections` + `lessons` | Deprecate |
-| `course_chapters` | Migration 004 created but not used in code | Drop |
+| `course_chapters` | Migration 004 created but code uses `course_sections` | Drop or migrate |
 | `course_sessions` | Migration 004 created but not used in code | Drop |
+| `course_sections` | Predecessor to `course_chapters`, still actively used in code | Consolidate with `course_chapters` |
 
 ### 4.2 Duplicate Data — 3 Enrollment Systems
 ```
@@ -177,7 +178,23 @@ The chapters API (`app/api/chapters/[courseId]/route.ts`) tries all 3 sources wi
 - `localStorage` — only used for legacy cleanup on logout
 - No server-side caching active
 
-### 4.5 Data Flow Diagrams
+### 4.5 Missing Indexes (from DB audit)
+| Index cần thêm | Lý do |
+|----------------|-------|
+| `lesson_progress (course_id, is_completed)` | Filter by completion status |
+| `courses (status, visibility, is_active)` | Admin dashboard filters |
+| `lessons (course_id, access_tier, status)` | Public lesson listing + access filter |
+| `order_items (course_id)` | Reverse lookup: orders bought this course |
+| `audit_logs (target_table, action_type, created_at DESC)` | Admin audit queries |
+
+### 4.6 Stale Denormalized Fields
+| Field | Table | Vấn đề |
+|-------|-------|--------|
+| `enrollments_count` | courses | Không bao giờ update khi có enrollment mới |
+| `lessons_count` | courses | Có update khi save chapters nhưng không khi delete lesson |
+| `orders.course_ids` (TEXT) | orders | Duplicate với `order_items` table — có thể diverge |
+
+### 4.7 Data Flow Diagrams
 
 **User đăng ký:**
 ```
@@ -203,6 +220,15 @@ Client → GET /api/chapters/[courseId]
   → getSectionsByCourse() from course_sections + lessons
   → Filter content based on tier
   → Return chapters with protected content
+```
+
+**Admin import từ Google Sheet:**
+```
+Google Sheet → webhook /api/webhook/sheet-sync (DEPRECATED)
+  HOẶC Admin → POST /api/admin/import-sheet
+  → syncSheetUsersToSupabase() → upsert users table
+  → grantCourseAccess() per user per course
+  → audit_logs ghi lại changes
 ```
 
 ---
