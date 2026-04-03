@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CourseCard } from '@/components/ui/CourseCard';
 import { Header } from '@/components/layout/Header';
@@ -18,10 +18,32 @@ const levelColors: Record<string, { bg: string; text: string; border: string }> 
 };
 
 export default function Dashboard() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, logout } = useAuth();
   const { enrollments, completedCoursesCount, totalHoursLearned, currentStreak } = useEnrollment();
   const { courses } = useCourses();
   const router = useRouter();
+
+  // Badge dropdown state
+  const [badgeMenuOpen, setBadgeMenuOpen] = useState(false);
+  const badgeMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleClickOutside = useCallback((e: MouseEvent) => {
+    if (badgeMenuRef.current && !badgeMenuRef.current.contains(e.target as Node)) {
+      setBadgeMenuOpen(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (badgeMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [badgeMenuOpen, handleClickOutside]);
+
+  const handleLogout = async () => {
+    await logout();
+    router.push('/login');
+  };
 
   // Calculate real weekly activity from enrollments
   const weeklyActivity = useMemo(() => {
@@ -96,35 +118,88 @@ export default function Dashboard() {
               {user.role === 'admin' ? 'Quản trị viên hệ thống' : 'Tiếp tục hành trình học tập của bạn'}
             </p>
           </div>
-          {/* Member Level Badge */}
-          <div className={`flex items-center gap-3 ${colors.bg} border ${colors.border} rounded-xl px-5 py-3`}>
-            <div className={`w-12 h-12 bg-white/10 border ${colors.border} rounded-full flex items-center justify-center`}>
-              {user.memberLevel === 'VIP' ? (
-                <svg className="w-6 h-6 text-gold" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                </svg>
-              ) : user.memberLevel === 'Premium' ? (
-                <svg className="w-6 h-6 text-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                </svg>
-              ) : (
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              )}
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wider">
-                {user.role === 'admin' ? 'Vai trò' : 'Hạng thành viên'}
-              </p>
-              <p className={`text-lg font-bold ${colors.text}`}>
-                {user.role === 'admin' ? 'Admin' : user.memberLevel}
-              </p>
-              {user.memberLevel === 'Free' && user.role !== 'admin' && (
-                <p className="text-[10px] text-gray-500 mt-0.5">
-                  <Link href="/pricing" className="text-teal hover:underline">Nâng cấp Premium</Link>
+          {/* Member Level Badge with Dropdown */}
+          <div className="relative" ref={badgeMenuRef}>
+            <button
+              onClick={() => setBadgeMenuOpen(prev => !prev)}
+              className={`flex items-center gap-3 ${colors.bg} border ${colors.border} rounded-xl px-5 py-3 cursor-pointer hover:opacity-90 transition-opacity`}
+            >
+              <div className={`w-12 h-12 bg-white/10 border ${colors.border} rounded-full flex items-center justify-center`}>
+                {user.memberLevel === 'VIP' ? (
+                  <svg className="w-6 h-6 text-gold" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                  </svg>
+                ) : user.memberLevel === 'Premium' ? (
+                  <svg className="w-6 h-6 text-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                  </svg>
+                ) : (
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                )}
+              </div>
+              <div className="text-left">
+                <p className="text-xs text-gray-400 uppercase tracking-wider">
+                  {user.role === 'admin' ? 'Vai trò' : 'Hạng thành viên'}
                 </p>
-              )}
+                <p className={`text-lg font-bold ${colors.text}`}>
+                  {user.role === 'admin' ? 'Admin' : user.memberLevel}
+                </p>
+                {user.memberLevel === 'Free' && user.role !== 'admin' && (
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    <span className="text-teal">Nâng cấp Premium</span>
+                  </p>
+                )}
+              </div>
+              <svg className={`w-4 h-4 text-gray-400 ml-1 transition-transform duration-200 ${badgeMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {/* Dropdown Menu */}
+            <div className={`absolute right-0 top-full mt-2 w-56 bg-[#1a1a2e] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden transition-all duration-200 origin-top-right ${
+              badgeMenuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
+            }`}>
+              <div className="p-2">
+                <Link
+                  href="/profile"
+                  onClick={() => setBadgeMenuOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  <span className="text-base">👤</span>
+                  Hồ sơ cá nhân
+                </Link>
+                <Link
+                  href="/profile#password"
+                  onClick={() => setBadgeMenuOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  <span className="text-base">🔑</span>
+                  Đổi mật khẩu
+                </Link>
+                {user.memberLevel === 'Free' && user.role !== 'admin' && (
+                  <Link
+                    href="/pricing"
+                    onClick={() => setBadgeMenuOpen(false)}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-teal hover:bg-teal/10 transition-colors"
+                  >
+                    <span className="text-base">⭐</span>
+                    Nâng cấp Premium
+                  </Link>
+                )}
+                <div className="my-1.5 border-t border-white/10" />
+                <button
+                  onClick={() => {
+                    setBadgeMenuOpen(false);
+                    handleLogout();
+                  }}
+                  className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+                >
+                  <span className="text-base">🚪</span>
+                  Đăng xuất
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -216,7 +291,7 @@ export default function Dashboard() {
             </h2>
             <Link href="/my-courses">
               <Button variant="ghost" size="sm">
-                Xem tất cả
+                Khoá Học Của Tôi
               </Button>
             </Link>
           </div>

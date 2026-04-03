@@ -86,7 +86,7 @@ export default function MyCourses() {
             <h2 className="text-2xl font-bold text-white mb-6">Đang học</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {inProgressCourses.map((course) => (
-                <CourseCard key={course.id} course={course} showProgress={true} />
+                <CourseCard key={course.id} course={course} showProgress={true} hasAccess={true} />
               ))}
             </div>
           </div>
@@ -98,7 +98,7 @@ export default function MyCourses() {
             <h2 className="text-2xl font-bold text-white mb-6">Đã hoàn thành</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {completedCourses.map((course) => (
-                <CourseCard key={course.id} course={course} showProgress={true} />
+                <CourseCard key={course.id} course={course} showProgress={true} hasAccess={true} />
               ))}
             </div>
           </div>
