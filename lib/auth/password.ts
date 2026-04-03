@@ -26,5 +26,9 @@ export function isBcryptHash(value: string): boolean {
 
 /** Returns true when the account has never had a real password set. */
 export function isLockedPassword(hash: string): boolean {
-  return !hash || hash === LOCKED_PASSWORD_SENTINEL;
+  if (!hash) return true;
+  if (hash === LOCKED_PASSWORD_SENTINEL) return true;
+  // Handle variations like !!IMPORTED_LOCKED, !!IMPORTED etc.
+  if (hash.startsWith('!IMPORTED') || hash.startsWith('!!IMPORTED')) return true;
+  return false;
 }

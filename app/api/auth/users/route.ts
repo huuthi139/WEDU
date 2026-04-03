@@ -25,20 +25,34 @@ async function handleFetchUsers() {
   try {
     const { users: allUsers } = await getAllUsers({ limit: 500 });
 
-    // Fetch all active course_access records with course titles
+    // Fetch all active course_access records and course titles separately
+    // to avoid issues with the !inner join producing incorrect groupings
     const supabase = getSupabaseAdmin();
-    const { data: courseAccessRows } = await supabase
-      .from('course_access')
-      .select('user_id, course_id, courses!inner(id, title)')
-      .eq('status', 'active');
+    const [accessRes, coursesRes] = await Promise.all([
+      supabase
+        .from('course_access')
+        .select('user_id, course_id')
+        .eq('status', 'active'),
+      supabase
+        .from('courses')
+        .select('id, title'),
+    ]);
+
+    // Build course title lookup
+    const courseTitles: Record<string, string> = {};
+    for (const c of coursesRes.data || []) {
+      courseTitles[c.id] = c.title || '';
+    }
 
     // Group course access by user_id
     const coursesByUser: Record<string, { courseId: string; courseName: string }[]> = {};
-    for (const row of courseAccessRows || []) {
-      if (!coursesByUser[row.user_id]) coursesByUser[row.user_id] = [];
-      coursesByUser[row.user_id].push({
+    for (const row of accessRes.data || []) {
+      const uid = row.user_id;
+      if (!uid) continue;
+      if (!coursesByUser[uid]) coursesByUser[uid] = [];
+      coursesByUser[uid].push({
         courseId: row.course_id,
-        courseName: (row.courses as any)?.title || '',
+        courseName: courseTitles[row.course_id] || '',
       });
     }
 

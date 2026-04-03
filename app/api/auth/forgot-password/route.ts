@@ -45,8 +45,12 @@ export async function POST(request: Request) {
       .sign(getSecret());
 
     // Send password reset email
-    await sendPasswordResetEmail(normalizedEmail, userName || 'bạn', resetToken);
+    const emailSent = await sendPasswordResetEmail(normalizedEmail, userName || 'bạn', resetToken);
+    if (!emailSent) {
+      console.error('[ForgotPassword] Failed to send reset email to', normalizedEmail);
+    }
 
+    // Always return success to prevent email enumeration
     return NextResponse.json({
       success: true,
       message: 'Nếu email tồn tại, bạn sẽ nhận được link khôi phục mật khẩu.',

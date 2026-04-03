@@ -54,12 +54,13 @@ export async function POST(request: Request) {
       return ERR.INVALID_CREDENTIALS();
     }
 
-    // Verify password – NEVER allow login for accounts without a real password.
-    // Imported/migrated users must activate via "Quên mật khẩu" (forgot-password) flow first.
+    // Block login for accounts that still have a locked sentinel password.
+    // These users must either have their password set by admin (default 123456)
+    // or use the "Quên mật khẩu" (forgot-password) flow.
     if (isLockedPassword(userProfile.password_hash)) {
       logger.info('auth.login', 'Login blocked: account not yet activated (imported user)', { email });
       return ERR.VALIDATION(
-        'Tài khoản chưa được kích hoạt. Vui lòng sử dụng chức năng "Quên mật khẩu" để đặt mật khẩu lần đầu.',
+        'Tài khoản chưa được kích hoạt. Vui lòng sử dụng chức năng "Quên mật khẩu" để đặt mật khẩu, hoặc đăng nhập bằng mật khẩu mặc định 123456.',
       );
     }
 
