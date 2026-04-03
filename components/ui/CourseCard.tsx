@@ -8,11 +8,13 @@ import Link from 'next/link';
 interface CourseCardProps {
   course: Course;
   showProgress?: boolean;
+  hasAccess?: boolean;
 }
 
-export function CourseCard({ course, showProgress = false }: CourseCardProps) {
+export function CourseCard({ course, showProgress = false, hasAccess = false }: CourseCardProps) {
+  const href = hasAccess ? `/learn/${course.id}` : `/courses/${course.id}`;
   return (
-    <Link href={`/courses/${course.id}`} className="block group">
+    <Link href={href} className="block group">
       <div className="bg-white/[0.03] rounded-2xl overflow-hidden border border-white/[0.06] hover:border-white/[0.12] hover:-translate-y-1.5 transition-all duration-[400ms] ease-smooth-bounce h-full flex flex-col hover:shadow-card-hover">
         {/* Thumbnail */}
         <div className="relative aspect-video overflow-hidden">
@@ -108,8 +110,10 @@ export function CourseCard({ course, showProgress = false }: CourseCardProps) {
                 </div>
               )}
             </div>
-            <span className="flex-shrink-0 px-3 py-1.5 bg-teal text-dark text-xs font-bold rounded-full group-hover:shadow-glow-teal transition-all">
-              Đăng Ký Ngay
+            <span className={`flex-shrink-0 px-3 py-1.5 text-xs font-bold rounded-full group-hover:shadow-glow-teal transition-all ${
+              hasAccess ? 'bg-teal text-white' : 'bg-teal text-dark'
+            }`}>
+              {hasAccess ? 'Vào Học Ngay' : 'Đăng Ký Ngay'}
             </span>
           </div>
         </div>
