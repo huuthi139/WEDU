@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import type { MemberLevel } from '@/lib/types';
 import { formatPrice } from '@/lib/utils';
@@ -24,6 +24,17 @@ interface Student {
   lastActive: string;
 }
 
+interface CourseDetail {
+  course_access_id: string;
+  course_id: string;
+  title: string;
+  access_tier: string;
+  activated_at: string | null;
+  expires_at: string | null;
+  status: string;
+  source: string;
+}
+
 interface StudentsTabProps {
   students: Student[];
   filteredStudents: Student[];
@@ -37,6 +48,20 @@ interface StudentsTabProps {
   handleRemoveCourse: (studentId: string, courseId: string) => void;
   onRefresh: () => void;
   LevelBadge: React.ComponentType<{ level: MemberLevel }>;
+}
+
+function TierBadge({ tier }: { tier: string }) {
+  const t = tier?.toLowerCase();
+  if (t === 'vip') return <span className="px-2 py-0.5 rounded text-xs font-bold bg-gradient-to-r from-gold/20 to-amber-500/20 text-gold border border-gold/30">VIP</span>;
+  if (t === 'premium') return <span className="px-2 py-0.5 rounded text-xs font-bold bg-teal/10 text-teal border border-teal/20">Premium</span>;
+  return <span className="px-2 py-0.5 rounded text-xs font-bold bg-white/5 text-gray-400 border border-white/10">Free</span>;
+}
+
+function ExpiryStatus({ expiresAt }: { expiresAt: string | null }) {
+  if (!expiresAt) return <span className="flex items-center gap-1 text-xs text-gray-400"><span className="w-2 h-2 rounded-full bg-gray-400 inline-block" /> Vinh vien</span>;
+  const expired = new Date(expiresAt) < new Date();
+  if (expired) return <span className="flex items-center gap-1 text-xs text-red-400"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Het han</span>;
+  return <span className="flex items-center gap-1 text-xs text-green-400"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Con han</span>;
 }
 
 export function StudentsTab({
@@ -53,6 +78,106 @@ export function StudentsTab({
   onRefresh,
   LevelBadge,
 }: StudentsTabProps) {
+  // Edit modal state
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', phone: '', member_level: 'Free', status: 'active' });
+  const [editSaving, setEditSaving] = useState(false);
+
+  // Delete confirm state
+  const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Course details per expanded student
+  const [courseDetails, setCourseDetails] = useState<CourseDetail[]>([]);
+  const [courseDetailsLoading, setCourseDetailsLoading] = useState(false);
+
+  // Fetch course details when expanding a student
+  const fetchCourseDetails = useCallback(async (userId: string) => {
+    setCourseDetailsLoading(true);
+    setCourseDetails([]);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/courses`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.courses)) {
+        setCourseDetails(data.courses);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setCourseDetailsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (expandedStudent) {
+      fetchCourseDetails(expandedStudent);
+    } else {
+      setCourseDetails([]);
+    }
+  }, [expandedStudent, fetchCourseDetails]);
+
+  // Edit handlers
+  const openEdit = (student: Student) => {
+    setEditingStudent(student);
+    setEditForm({
+      name: student.name,
+      phone: student.phone,
+      member_level: student.memberLevel,
+      status: student.status === 'Active' ? 'active' : 'inactive',
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingStudent) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch(`/api/admin/users/${editingStudent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(editForm),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingStudent(null);
+        onRefresh();
+      } else {
+        alert(`Loi: ${data.error}`);
+      }
+    } catch {
+      alert('Khong the cap nhat. Vui long thu lai.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  // Delete handlers
+  const handleConfirmDelete = async () => {
+    if (!deletingStudent) return;
+    setDeleteLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users/${deletingStudent.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDeletingStudent(null);
+        if (expandedStudent === deletingStudent.id) setExpandedStudent(null);
+        onRefresh();
+      } else {
+        alert(`Loi: ${data.error}`);
+      }
+    } catch {
+      alert('Khong the xoa. Vui long thu lai.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Empty state with import link */}
@@ -143,20 +268,19 @@ export function StudentsTab({
             <thead>
               <tr className="border-b border-white/[0.06]">
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase w-8"></th>
-                <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">ID</th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">Hoc vien</th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">SDT</th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">Hang</th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">Khoa hoc</th>
-                <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">Chi tieu</th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">Tham gia</th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">Trang thai</th>
+                <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase w-24">Thao tac</th>
               </tr>
             </thead>
             <tbody>
               {filteredStudents.length === 0 && !studentsLoading && (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-gray-500 text-sm">
+                  <td colSpan={8} className="p-8 text-center text-gray-500 text-sm">
                     {studentsError ? 'Khong the tai du lieu hoc vien.' : 'Chua co hoc vien nao.'}
                   </td>
                 </tr>
@@ -180,7 +304,6 @@ export function StudentsTab({
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
                       </td>
-                      <td className="p-4 text-sm text-gray-400 font-mono">{student.id}</td>
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
@@ -198,9 +321,6 @@ export function StudentsTab({
                       <td className="p-4 text-sm text-gray-400">{student.phone}</td>
                       <td className="p-4"><LevelBadge level={student.memberLevel} /></td>
                       <td className="p-4 text-sm text-white font-semibold">{student.enrolledCourses.length}</td>
-                      <td className="p-4 text-sm text-gold font-semibold">
-                        {student.totalSpent === 0 ? '-' : formatPrice(student.totalSpent)}
-                      </td>
                       <td className="p-4 text-sm text-gray-400">{student.joinDate}</td>
                       <td className="p-4">
                         <div className="flex items-center gap-1.5">
@@ -208,15 +328,38 @@ export function StudentsTab({
                           <span className="text-sm text-gray-400">{student.status === 'Active' ? 'Hoat dong' : 'Ngung'}</span>
                         </div>
                       </td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => openEdit(student)}
+                            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-gray-400 hover:text-teal transition-colors"
+                            title="Sua hoc vien"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => setDeletingStudent(student)}
+                            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition-colors"
+                            title="Xoa hoc vien"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
-                    {/* Expanded row: enrolled courses */}
+                    {/* Expanded row: course details with tier + expiry */}
                     {isExpanded && (
                       <tr>
-                        <td colSpan={9} className="p-0">
+                        <td colSpan={8} className="p-0">
                           <div className="bg-dark/40 border-t border-white/[0.06]/50 px-8 py-4">
                             <div className="flex items-center justify-between mb-3">
                               <div className="text-xs font-semibold text-gray-400 uppercase">
-                                Khoa hoc da dang ky ({student.enrolledCourses.length})
+                                Khoa hoc da dang ky ({courseDetails.length})
+                                {courseDetailsLoading && <span className="ml-2 animate-pulse">Dang tai...</span>}
                               </div>
                               <button
                                 onClick={(e) => { e.stopPropagation(); setShowAddCourseModal(student.id); }}
@@ -229,9 +372,9 @@ export function StudentsTab({
                               </button>
                             </div>
                             <div className="space-y-2">
-                              {student.enrolledCourses.map(ec => (
+                              {courseDetails.map(cd => (
                                 <div
-                                  key={ec.courseId}
+                                  key={cd.course_access_id}
                                   className="flex items-center justify-between bg-white/[0.03] border border-white/[0.06]/50 rounded-lg px-4 py-3 group"
                                 >
                                   <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -240,24 +383,20 @@ export function StudentsTab({
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                                       </svg>
                                     </div>
-                                    <span className="text-sm text-white truncate">{ec.courseName}</span>
+                                    <span className="text-sm text-white truncate">{cd.title}</span>
+                                    <TierBadge tier={cd.access_tier} />
                                   </div>
-                                  <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-                                    <div className="flex items-center gap-2 min-w-[120px]">
-                                      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                                        <div
-                                          className={`h-full rounded-full ${
-                                            ec.progress === 100 ? 'bg-green-500' :
-                                            ec.progress >= 50 ? 'bg-gold' : 'bg-teal'
-                                          }`}
-                                          style={{ width: `${ec.progress}%` }}
-                                        />
-                                      </div>
-                                      <span className="text-xs text-gray-400 w-8 text-right">{ec.progress}%</span>
+                                  <div className="flex items-center gap-4 flex-shrink-0 ml-4">
+                                    <div className="text-xs text-gray-500">
+                                      {cd.activated_at ? new Date(cd.activated_at).toLocaleDateString('vi-VN') : '-'}
                                     </div>
+                                    <div className="text-xs text-gray-500">
+                                      {cd.expires_at ? new Date(cd.expires_at).toLocaleDateString('vi-VN') : 'Vinh vien'}
+                                    </div>
+                                    <ExpiryStatus expiresAt={cd.expires_at} />
                                     <button
-                                      onClick={(e) => { e.stopPropagation(); handleRemoveCourse(student.id, ec.courseId); }}
-                                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-teal bg-teal/10 hover:bg-teal/20 text-xs font-semibold transition-all"
+                                      onClick={(e) => { e.stopPropagation(); handleRemoveCourse(student.id, cd.course_id); }}
+                                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-red-400 bg-red-500/10 hover:bg-red-500/20 text-xs font-semibold transition-all"
                                     >
                                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -267,7 +406,7 @@ export function StudentsTab({
                                   </div>
                                 </div>
                               ))}
-                              {student.enrolledCourses.length === 0 && (
+                              {!courseDetailsLoading && courseDetails.length === 0 && (
                                 <div className="text-center py-4 text-sm text-gray-500">
                                   Chua co khoa hoc nao
                                 </div>
@@ -284,6 +423,131 @@ export function StudentsTab({
           </table>
         </div>
       </div>
+
+      {/* ===== EDIT STUDENT MODAL ===== */}
+      {editingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-dark/70 backdrop-blur-sm" onClick={() => setEditingStudent(null)} />
+          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-2xl shadow-2xl w-full max-w-lg mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-bold text-white">Chinh sua hoc vien</h3>
+                <button onClick={() => setEditingStudent(null)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
+                  <input type="text" disabled value={editingStudent.email} className="w-full bg-dark/50 border border-gray-700 rounded-lg px-4 py-2.5 text-gray-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Ten</label>
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full bg-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">So dien thoai</label>
+                  <input
+                    type="text"
+                    value={editForm.phone}
+                    onChange={e => setEditForm(prev => ({ ...prev, phone: e.target.value }))}
+                    className="w-full bg-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Hang tai khoan</label>
+                  <select
+                    value={editForm.member_level}
+                    onChange={e => setEditForm(prev => ({ ...prev, member_level: e.target.value }))}
+                    className="w-full bg-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors"
+                  >
+                    <option value="Free">Free</option>
+                    <option value="Premium">Premium</option>
+                    <option value="VIP">VIP</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Trang thai</label>
+                  <select
+                    value={editForm.status}
+                    onChange={e => setEditForm(prev => ({ ...prev, status: e.target.value }))}
+                    className="w-full bg-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 mt-6 pt-4 border-t border-white/[0.06]">
+                <button
+                  onClick={() => setEditingStudent(null)}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-gray-700 text-gray-300 text-sm font-semibold hover:bg-white/5 transition-colors"
+                >
+                  Huy
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={editSaving || !editForm.name.trim()}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-teal text-white text-sm font-semibold hover:bg-teal/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {editSaving ? 'Dang luu...' : 'Cap nhat'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== DELETE CONFIRM MODAL ===== */}
+      {deletingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-dark/70 backdrop-blur-sm" onClick={() => setDeletingStudent(null)} />
+          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-2xl shadow-2xl w-full max-w-md mx-4">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Xoa hoc vien</h3>
+                  <p className="text-sm text-gray-400">Hanh dong nay khong the hoan tac</p>
+                </div>
+              </div>
+              <div className="bg-dark/50 border border-white/[0.06] rounded-lg p-4 mb-4">
+                <div className="text-sm text-white font-medium">{deletingStudent.name}</div>
+                <div className="text-xs text-gray-500 mt-1">{deletingStudent.email}</div>
+              </div>
+              <p className="text-sm text-gray-300 mb-6">
+                Xoa hoc vien nay? Toan bo quyen truy cap khoa hoc se bi xoa. Don hang (lich su) se duoc giu lai.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setDeletingStudent(null)}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-gray-700 text-gray-300 text-sm font-semibold hover:bg-white/5 transition-colors"
+                >
+                  Huy
+                </button>
+                <button
+                  onClick={handleConfirmDelete}
+                  disabled={deleteLoading}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-50"
+                >
+                  {deleteLoading ? 'Dang xoa...' : 'Xac nhan xoa'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

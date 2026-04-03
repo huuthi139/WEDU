@@ -127,19 +127,35 @@ export async function emailExists(email: string): Promise<boolean> {
 }
 
 /**
- * Get all users (for admin)
+ * Get all users (for admin) with optional pagination
  */
-export async function getAllUsers(): Promise<SupabaseUser[]> {
+export async function getAllUsers(opts?: {
+  limit?: number;
+  offset?: number;
+  search?: string;
+}): Promise<{ users: SupabaseUser[]; total: number }> {
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const limit = opts?.limit || 50;
+  const offset = opts?.offset || 0;
+
+  let query = supabase
     .from('users')
-    .select('*')
+    .select('id, email, name, phone, role, system_role, member_level, avatar_url, status, created_at, updated_at', { count: 'exact' })
     .order('created_at', { ascending: false });
+
+  if (opts?.search) {
+    const s = `%${opts.search}%`;
+    query = query.or(`email.ilike.${s},name.ilike.${s},phone.ilike.${s}`);
+  }
+
+  query = query.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await query;
 
   if (error) {
     throw new Error(`[Supabase] getAllUsers failed: ${error.message} (code: ${error.code})`);
   }
-  return (data as SupabaseUser[]) || [];
+  return { users: (data as SupabaseUser[]) || [], total: count || 0 };
 }
 
 /**

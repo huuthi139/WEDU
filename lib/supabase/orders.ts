@@ -61,20 +61,35 @@ export async function createOrder(order: {
 }
 
 /**
- * Get all orders (admin)
+ * Get all orders (admin) with optional pagination
  */
-export async function getAllOrders(): Promise<SupabaseOrder[]> {
+export async function getAllOrders(opts?: {
+  limit?: number;
+  offset?: number;
+  status?: string;
+}): Promise<{ orders: SupabaseOrder[]; total: number }> {
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const limit = opts?.limit || 50;
+  const offset = opts?.offset || 0;
+
+  let query = supabase
     .from('orders')
-    .select('*')
+    .select('*', { count: 'exact' })
     .order('created_at', { ascending: false });
+
+  if (opts?.status) {
+    query = query.eq('status', opts.status);
+  }
+
+  query = query.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await query;
 
   if (error) {
     console.warn('[Supabase Orders] Failed to fetch:', error.message);
-    return [];
+    return { orders: [], total: 0 };
   }
-  return (data || []) as SupabaseOrder[];
+  return { orders: (data || []) as SupabaseOrder[], total: count || 0 };
 }
 
 /**

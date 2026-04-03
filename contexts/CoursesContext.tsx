@@ -39,8 +39,8 @@ export function CoursesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     fetchCourses();
 
-    // Auto-refetch every 60 seconds to sync latest data from Supabase
-    const interval = setInterval(fetchCourses, 60 * 1000);
+    // Auto-refetch every 5 minutes to sync latest data from Supabase
+    const interval = setInterval(fetchCourses, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 

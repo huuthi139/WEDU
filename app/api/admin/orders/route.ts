@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Không có quyền truy cập' }, { status: 403 });
   }
 
-  const orders = await getAllOrders();
+  const { orders } = await getAllOrders({ limit: 500 });
 
   return NextResponse.json({
     success: true,
