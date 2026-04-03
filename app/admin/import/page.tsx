@@ -33,7 +33,7 @@ interface ImportResult {
 
 export default function ImportPage() {
   // Config
-  const [tables, setTables] = useState<string[]>(['courses', 'students', 'course_access']);
+  const [tables, setTables] = useState<string[]>(['courses', 'students', 'course_access', 'orders']);
   const [dryRun, setDryRun] = useState(true);
   const [upgradeOnly, setUpgradeOnly] = useState(true);
   const [sheetId, setSheetId] = useState('');
@@ -118,10 +118,11 @@ export default function ImportPage() {
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 mb-6">
           <h3 className="text-sm font-semibold text-white mb-2">Hướng dẫn</h3>
           <div className="text-xs text-gray-400 space-y-1">
-            <p>Google Sheet cần có 3 tab: <code className="text-teal">students</code>, <code className="text-teal">courses</code>, <code className="text-teal">course_access</code></p>
+            <p>Google Sheet cần có các tab: <code className="text-teal">students</code>, <code className="text-teal">courses</code>, <code className="text-teal">course_access</code>, <code className="text-teal">orders</code> (tùy chọn)</p>
             <p><strong>students</strong>: email (bắt buộc), full_name, phone, system_role, status, password</p>
             <p><strong>courses</strong>: course_code (bắt buộc), title (bắt buộc), slug, status, visibility, short_description</p>
             <p><strong>course_access</strong>: email (bắt buộc), course_code (bắt buộc), access_tier, status, activated_at, expires_at, source</p>
+            <p><strong>orders</strong>: Email (bắt buộc), Mã khoá học (bắt buộc), Tên, SĐT, Khoá học, Hạng, Ngày đăng ký, Trạng thái, Ghi chú</p>
             <p className="mt-2 text-amber-400">Luôn chạy Dry Run trước để kiểm tra, sau đó tắt Dry Run để import thật.</p>
           </div>
         </div>
@@ -143,18 +144,23 @@ export default function ImportPage() {
           {/* Table selection */}
           <div>
             <label className="block text-xs text-gray-400 mb-2">Chọn bảng import</label>
-            <div className="flex gap-3">
-              {['courses', 'students', 'course_access'].map(table => (
+            <div className="flex flex-wrap gap-3">
+              {[
+                { key: 'courses', label: 'courses' },
+                { key: 'students', label: 'students' },
+                { key: 'course_access', label: 'course_access' },
+                { key: 'orders', label: 'orders (Đơn hàng)' },
+              ].map(({ key, label }) => (
                 <button
-                  key={table}
-                  onClick={() => toggleTable(table)}
+                  key={key}
+                  onClick={() => toggleTable(key)}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors border ${
-                    tables.includes(table)
+                    tables.includes(key)
                       ? 'bg-teal/20 text-teal border-teal/30'
                       : 'bg-white/5 text-gray-400 border-white/10 hover:text-white'
                   }`}
                 >
-                  {table}
+                  {label}
                 </button>
               ))}
             </div>
