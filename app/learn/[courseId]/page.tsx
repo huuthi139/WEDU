@@ -386,15 +386,17 @@ export default function LearnPage() {
                 </div>
               ) : currentLesson?.directPlayUrl ? (
                 isEmbedUrl(currentLesson.directPlayUrl) ? (
-                  <iframe
-                    key={currentLesson.directPlayUrl}
-                    src={normalizeBunnyEmbedUrl(currentLesson.directPlayUrl)}
-                    className="w-full h-full"
-                    style={{ border: 'none' }}
-                    loading="lazy"
-                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
-                    allowFullScreen
-                  />
+                  <div className="relative w-full h-full">
+                    <iframe
+                      key={currentLesson.directPlayUrl}
+                      src={normalizeBunnyEmbedUrl(currentLesson.directPlayUrl)}
+                      className="absolute inset-0 w-full h-full"
+                      style={{ border: 'none' }}
+                      loading="lazy"
+                      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
+                      allowFullScreen
+                    />
+                  </div>
                 ) : (
                   <video
                     key={currentLesson.directPlayUrl}
