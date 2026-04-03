@@ -3,6 +3,7 @@ import { apiSuccess, ERR } from '@/lib/api/response';
 import { getUserByEmail, createUserProfile } from '@/lib/supabase/users';
 import { normalizeRole, getPermissionsForRole } from '@/lib/auth/permissions';
 import { logger } from '@/lib/telemetry/logger';
+import { LOCKED_PASSWORD_SENTINEL } from '@/lib/auth/password';
 
 /**
  * GET /api/auth/me
@@ -29,7 +30,7 @@ export async function GET() {
           email: sessionUser.email,
           name: sessionUser.name || '',
           phone: '',
-          passwordHash: '', // Will be set on next password change
+          passwordHash: LOCKED_PASSWORD_SENTINEL, // Account locked until user sets a real password
           role: sessionUser.role || 'user',
           memberLevel: sessionUser.memberLevel || 'Free',
         });

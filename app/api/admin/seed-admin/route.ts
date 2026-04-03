@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server';
 import { hashPassword } from '@/lib/auth/password';
 import { getUserByEmail, createUserProfile, updateUserProfile } from '@/lib/supabase/users';
+import { requireAdmin } from '@/lib/auth/guards';
 
 const DEFAULT_ADMIN_EMAIL = 'admin@wedu.vn';
 const DEFAULT_ADMIN_PASSWORD = 'Admin139@';
@@ -13,6 +14,7 @@ const DEFAULT_ADMIN_NAME = 'Admin WEDU';
 
 export async function POST() {
   try {
+    await requireAdmin();
     // Check if admin already exists
     const existing = await getUserByEmail(DEFAULT_ADMIN_EMAIL);
     if (existing) {
@@ -58,6 +60,7 @@ export async function POST() {
 }
 
 export async function GET() {
+  try { await requireAdmin(); } catch { return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }); }
   return NextResponse.json({
     message: 'Gọi POST /api/admin/seed-admin để tạo/reset tài khoản admin mặc định.',
     credentials: {

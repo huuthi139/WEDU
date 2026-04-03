@@ -7,7 +7,7 @@ export interface WeduJWTPayload extends JWTPayload {
   level: string;
 }
 
-function getSecret(): Uint8Array {
+export function getSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
   if (!secret || secret.length < 32) throw new Error('JWT_SECRET must be set and >= 32 chars');
   return new TextEncoder().encode(secret);

@@ -5,12 +5,13 @@
  * Phase 4.7: Google Sheets sync removed. Only seeds default admin.
  * Use /api/admin/import-sheet for data migration from Google Sheets.
  *
- * This endpoint does NOT require authentication.
+ * Requires admin authentication.
  * It only works when the users table is empty (safety measure).
  */
 import { NextResponse } from 'next/server';
 import { hashPassword } from '@/lib/auth/password';
 import { getSupabaseAdmin } from '@/lib/supabase/client';
+import { requireAdmin } from '@/lib/auth/guards';
 
 const DEFAULT_ADMIN_EMAIL = 'admin@wedu.vn';
 const DEFAULT_ADMIN_PASSWORD = 'Admin@123';
@@ -18,6 +19,7 @@ const DEFAULT_ADMIN_NAME = 'Admin WEDU';
 
 export async function POST() {
   try {
+    await requireAdmin();
     const supabase = getSupabaseAdmin();
 
     // Safety: only run when users table is empty
@@ -87,6 +89,7 @@ export async function POST() {
 
 export async function GET() {
   try {
+    await requireAdmin();
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase.from('users').select('id').limit(1);
 

@@ -16,10 +16,8 @@ export async function hashPassword(plaintext: string): Promise<string> {
 
 export async function verifyPassword(plaintext: string, stored: string): Promise<boolean> {
   if (isLockedPassword(stored)) return false;
-  if (isBcryptHash(stored)) {
-    return bcrypt.compare(plaintext, stored);
-  }
-  return plaintext === stored; // legacy plaintext — migration support
+  if (!isBcryptHash(stored)) return false;
+  return bcrypt.compare(plaintext, stored);
 }
 
 export function isBcryptHash(value: string): boolean {

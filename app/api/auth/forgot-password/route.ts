@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { SignJWT } from 'jose';
 import { sendPasswordResetEmail } from '@/lib/email/send';
-
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret');
+import { getSecret } from '@/lib/auth/jwt';
 
 export async function POST(request: Request) {
   try {
@@ -43,7 +42,7 @@ export async function POST(request: Request) {
       .setProtectedHeader({ alg: 'HS256' })
       .setExpirationTime('1h')
       .setIssuedAt()
-      .sign(JWT_SECRET);
+      .sign(getSecret());
 
     // Send password reset email
     await sendPasswordResetEmail(normalizedEmail, userName || 'bạn', resetToken);

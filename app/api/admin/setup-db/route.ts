@@ -3,6 +3,7 @@
  * POST /api/admin/setup-db - Return SQL migration + seed data for manual execution
  */
 import { NextResponse } from 'next/server';
+import { requireAdmin } from '@/lib/auth/guards';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -25,6 +26,7 @@ async function checkTable(name: string): Promise<boolean> {
 }
 
 export async function GET() {
+  try { await requireAdmin(); } catch { return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }); }
   const status: Record<string, boolean> = {};
   await Promise.all(REQUIRED_TABLES.map(async (t) => { status[t] = await checkTable(t); }));
 
@@ -41,6 +43,7 @@ export async function GET() {
 }
 
 export async function POST() {
+  try { await requireAdmin(); } catch { return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }); }
   const status: Record<string, boolean> = {};
   await Promise.all(REQUIRED_TABLES.map(async (t) => { status[t] = await checkTable(t); }));
 

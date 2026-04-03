@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { hashPassword } from '@/lib/auth/password';
-
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret');
+import { getSecret } from '@/lib/auth/jwt';
 
 export async function POST(request: Request) {
   try {
@@ -25,7 +24,7 @@ export async function POST(request: Request) {
     // Verify reset token
     let email: string;
     try {
-      const { payload } = await jwtVerify(token, JWT_SECRET);
+      const { payload } = await jwtVerify(token, getSecret());
       if (payload.purpose !== 'password-reset' || typeof payload.email !== 'string') {
         return NextResponse.json(
           { success: false, error: 'Token không hợp lệ' },
