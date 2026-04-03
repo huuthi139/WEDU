@@ -9,6 +9,8 @@ import { AdvancedFilters, FilterState } from '@/components/ui/AdvancedFilters';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { useCourses } from '@/contexts/CoursesContext';
+import { useAuth } from '@/contexts/AuthContext';
+import Link from 'next/link';
 
 export default function CoursesPageClient() {
   return (
@@ -31,6 +33,7 @@ export default function CoursesPageClient() {
 function Courses() {
   const searchParams = useSearchParams();
   const { courses, categories, isLoading: coursesLoading } = useCourses();
+  const { user } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
   const [isLoading, setIsLoading] = useState(true);
@@ -123,13 +126,22 @@ function Courses() {
 
       <div className="container mx-auto px-4 py-8">
         {/* Page Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">
-            Khám phá khóa học
-          </h1>
-          <p className="text-gray-400">
-            Tìm khóa học phù hợp với mục tiêu của bạn
-          </p>
+        <div className="flex items-start justify-between mb-8">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">
+              Khám phá khóa học
+            </h1>
+            <p className="text-gray-400">
+              Tìm khóa học phù hợp với mục tiêu của bạn
+            </p>
+          </div>
+          {user && (
+            <Link href="/my-courses">
+              <Button variant="primary" size="md">
+                📚 Khoá học của tôi
+              </Button>
+            </Link>
+          )}
         </div>
 
         {/* Search Bar */}

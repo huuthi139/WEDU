@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useCourses } from '@/contexts/CoursesContext';
@@ -56,6 +56,48 @@ function getAllCourseComments(courseId: string): Comment[] {
     console.error('[LearnPage] localStorage error:', error instanceof Error ? error.message : String(error));
     return [];
   }
+}
+
+function VideoWatermark({ email }: { email: string }) {
+  const [position, setPosition] = useState({ top: 20, left: 30 });
+  const timerRef = useRef<ReturnType<typeof setInterval>>();
+
+  const randomize = useCallback(() => {
+    setPosition({
+      top: 10 + Math.random() * 70,   // 10%–80%
+      left: 5 + Math.random() * 80,   // 5%–85%
+    });
+  }, []);
+
+  useEffect(() => {
+    timerRef.current = setInterval(randomize, 9000);
+    return () => clearInterval(timerRef.current);
+  }, [randomize]);
+
+  return (
+    <div
+      className="absolute inset-0 overflow-hidden"
+      style={{ pointerEvents: 'none', zIndex: 10 }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: `${position.top}%`,
+          left: `${position.left}%`,
+          color: 'white',
+          opacity: 0.15,
+          fontSize: '13px',
+          fontFamily: 'monospace',
+          whiteSpace: 'nowrap',
+          userSelect: 'none',
+          pointerEvents: 'none',
+          transition: 'top 2s ease-in-out, left 2s ease-in-out',
+        }}
+      >
+        {email}
+      </span>
+    </div>
+  );
 }
 
 export default function LearnPage() {
@@ -320,7 +362,7 @@ export default function LearnPage() {
         <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${sidebarOpen ? '' : ''}`}>
           {/* Video Player */}
           <div className="relative bg-dark">
-            <div className="aspect-video w-full max-h-[calc(100vh-280px)]">
+            <div className="relative aspect-video w-full max-h-[calc(100vh-280px)]">
               {currentLesson && !isLessonAccessible(currentLesson) ? (
                 /* Access denied overlay */
                 <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
@@ -374,6 +416,7 @@ export default function LearnPage() {
                   </div>
                 </div>
               )}
+              {user?.email && <VideoWatermark email={user.email} />}
             </div>
           </div>
 

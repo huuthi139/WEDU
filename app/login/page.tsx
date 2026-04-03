@@ -207,12 +207,12 @@ export default function Login() {
           </div>
 
           {/* Sign Up Link */}
-          <p className="text-center text-gray-400 text-sm">
+          <div className="text-center text-gray-400 text-sm">
             Chưa có tài khoản?{' '}
-            <Link href="/register" className="text-teal hover:text-teal/80 font-semibold transition-colors">
+            <Link href="/register" className="text-teal hover:text-teal/80 font-semibold transition-colors inline-block">
               Đăng ký ngay
             </Link>
-          </p>
+          </div>
         </div>
 
         {/* Back to Home */}
