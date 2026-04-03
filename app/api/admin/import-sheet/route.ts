@@ -697,7 +697,7 @@ async function importOrders(
     return stats;
   }
 
-  // Column mapping helpers
+  // Column mapping helpers (flexible column names from Google Sheet)
   const getEmail = (row: Record<string, string>) =>
     normalizeEmail(getCol(row, 'Email', 'email', 'E-mail'));
   const getName = (row: Record<string, string>) =>
@@ -705,15 +705,15 @@ async function importOrders(
   const getPhone = (row: Record<string, string>) =>
     getCol(row, 'SĐT', 'SDT', 'Phone', 'Số điện thoại', 'So dien thoai', 'phone').trim();
   const getCourseCode = (row: Record<string, string>) =>
-    getCol(row, 'Mã khoá học', 'Ma khoa', 'Course ID', 'course_code', 'Mã khóa học', 'courseCode', 'ID khóa').trim();
+    getCol(row, 'Mã khoá', 'Ma khoa', 'Mã khoá học', 'Mã khóa học', 'course_id', 'Khoá học', 'Course ID', 'course_code', 'courseCode', 'ID khóa').trim();
   const getTier = (row: Record<string, string>) =>
-    getCol(row, 'Hạng', 'Level', 'access_tier', 'Tier', 'level', 'tier', 'Hang');
+    getCol(row, 'Hạng', 'Tier', 'access_tier', 'Level', 'level', 'tier', 'Hang');
   const getActivatedAt = (row: Record<string, string>) =>
-    getCol(row, 'Ngày đăng ký', 'activated_at', 'Ngày mua', 'Ngay dang ky', 'Ngay mua');
-  const getStatus = (row: Record<string, string>) =>
-    getCol(row, 'Trạng thái', 'Status', 'status', 'Trang thai');
+    getCol(row, 'Ngày bắt đầu', 'activated_at', 'Ngày mua', 'Ngay bat dau', 'Ngay mua', 'Ngày đăng ký');
+  const getExpiresAt = (row: Record<string, string>) =>
+    getCol(row, 'Ngày hết hạn', 'expires_at', 'Hết hạn', 'Het han', 'Ngay het han');
   const getNote = (row: Record<string, string>) =>
-    getCol(row, 'Ghi chú', 'Note', 'note', 'Ghi chu');
+    getCol(row, 'Ghi chú', 'Note', 'notes', 'Ghi chu', 'note');
 
   // Detect duplicate email+courseCode pairs in file
   const duplicates = detectDuplicateRows(rows, (row) => {
@@ -749,7 +749,7 @@ async function importOrders(
     const courseCode = getCourseCode(row);
     const tierRaw = getTier(row);
     const activatedAtRaw = getActivatedAt(row);
-    const statusRaw = getStatus(row);
+    const expiresAtRaw = getExpiresAt(row);
     const note = getNote(row);
 
     // --- Validation ---
@@ -792,8 +792,8 @@ async function importOrders(
     }
     processedPairs.add(pairKey);
 
-    const accessStatus = normalizeAccessStatus(statusRaw);
     const activatedAt = parseDate(activatedAtRaw) || new Date().toISOString();
+    const expiresAt = parseDate(expiresAtRaw) || null;
 
     stats.valid++;
     if (dryRun) continue;
@@ -812,6 +812,14 @@ async function importOrders(
         userId = existingUser.id as string;
         userCache.set(email, userId);
         usersExisted++;
+        // Update name/phone if provided and currently empty
+        const profileUpdates: Record<string, unknown> = {};
+        if (name) profileUpdates.name = name;
+        if (phone) profileUpdates.phone = phone;
+        if (Object.keys(profileUpdates).length > 0) {
+          profileUpdates.updated_at = new Date().toISOString();
+          await supabase.from('users').update(profileUpdates).eq('id', userId);
+        }
       } else {
         // Create new user
         const now = new Date().toISOString();
@@ -909,10 +917,12 @@ async function importOrders(
       };
 
       if (mergedTier !== currentTier) updates.access_tier = mergedTier;
-      if (accessStatus === 'active' && existingAccess.status !== 'active') {
+      if (existingAccess.status !== 'active') {
         updates.status = 'active';
         updates.activated_at = activatedAt;
       }
+      // Always update expires_at from sheet data
+      updates.expires_at = expiresAt;
 
       if (Object.keys(updates).length > 1) {
         const { error } = await supabase
@@ -945,13 +955,12 @@ async function importOrders(
         course_id: courseId,
         access_tier: tier,
         source: 'import',
-        status: accessStatus,
+        status: 'active',
         activated_at: activatedAt,
+        expires_at: expiresAt,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-
-      if (note) insertData.notes = note;
 
       const { error } = await supabase.from('course_access').insert(insertData);
 
@@ -970,21 +979,33 @@ async function importOrders(
       }
     }
 
-    // --- Step D: Upgrade user member_level if needed ---
-    const { data: userRow } = await supabase
-      .from('users')
-      .select('member_level')
-      .eq('id', userId)
-      .limit(1)
-      .single();
+    // --- Step D: Update member_level = highest tier across ALL active course_access ---
+    const { data: allAccess } = await supabase
+      .from('course_access')
+      .select('access_tier, expires_at')
+      .eq('user_id', userId)
+      .eq('status', 'active');
 
-    if (userRow) {
-      const currentLevel = (userRow.member_level || 'Free').toLowerCase();
-      const newLevel = tier === 'vip' ? 'vip' : tier === 'premium' ? 'premium' : 'free';
+    if (allAccess && allAccess.length > 0) {
       const levelRank: Record<string, number> = { free: 0, premium: 1, vip: 2 };
+      const now = new Date();
+      let highestRank = 0;
+      for (const ca of allAccess) {
+        // Skip expired access
+        if (ca.expires_at && new Date(ca.expires_at) < now) continue;
+        const rank = levelRank[(ca.access_tier || 'free').toLowerCase()] || 0;
+        if (rank > highestRank) highestRank = rank;
+      }
+      const displayLevel = highestRank === 2 ? 'VIP' : highestRank === 1 ? 'Premium' : 'Free';
 
-      if ((levelRank[newLevel] || 0) > (levelRank[currentLevel] || 0)) {
-        const displayLevel = newLevel === 'vip' ? 'VIP' : newLevel === 'premium' ? 'Premium' : 'Free';
+      const { data: userRow } = await supabase
+        .from('users')
+        .select('member_level')
+        .eq('id', userId)
+        .limit(1)
+        .single();
+
+      if (userRow && userRow.member_level !== displayLevel) {
         const { error } = await supabase
           .from('users')
           .update({ member_level: displayLevel, updated_at: new Date().toISOString() })
@@ -995,7 +1016,7 @@ async function importOrders(
             row: rowNum,
             field: 'info',
             value: email,
-            message: `Upgrade member_level: ${userRow.member_level} → ${displayLevel}`,
+            message: `Update member_level: ${userRow.member_level} → ${displayLevel}`,
           });
         }
       }
