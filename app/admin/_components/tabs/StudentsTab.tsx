@@ -87,6 +87,12 @@ export function StudentsTab({
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Add member modal state
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [addForm, setAddForm] = useState({ name: '', email: '', phone: '', password: '', memberLevel: 'Free' });
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState('');
+
   // Course details per expanded student
   const [courseDetails, setCourseDetails] = useState<CourseDetail[]>([]);
   const [courseDetailsLoading, setCourseDetailsLoading] = useState(false);
@@ -178,6 +184,49 @@ export function StudentsTab({
     }
   };
 
+  const handleAddMember = async () => {
+    setAddError('');
+    if (!addForm.name.trim() || addForm.name.trim().length < 2) {
+      setAddError('Ten phai co it nhat 2 ky tu');
+      return;
+    }
+    if (!addForm.email.trim()) {
+      setAddError('Vui long nhap email');
+      return;
+    }
+    if (!addForm.password || addForm.password.length < 6) {
+      setAddError('Mat khau phai co it nhat 6 ky tu');
+      return;
+    }
+    setAddSaving(true);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: addForm.name.trim(),
+          email: addForm.email.trim(),
+          phone: addForm.phone.trim(),
+          password: addForm.password,
+          memberLevel: addForm.memberLevel,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowAddMember(false);
+        setAddForm({ name: '', email: '', phone: '', password: '', memberLevel: 'Free' });
+        onRefresh();
+      } else {
+        setAddError(data.error || 'Khong the tao tai khoan');
+      }
+    } catch {
+      setAddError('Loi ket noi. Vui long thu lai.');
+    } finally {
+      setAddSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Empty state with import link */}
@@ -225,6 +274,15 @@ export function StudentsTab({
           ))}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAddMember(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-teal text-white hover:bg-teal/80 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+            </svg>
+            Them thanh vien
+          </button>
           <button
             onClick={onRefresh}
             disabled={studentsLoading}
@@ -542,6 +600,127 @@ export function StudentsTab({
                   className="flex-1 px-4 py-2.5 rounded-lg bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-50"
                 >
                   {deleteLoading ? 'Dang xoa...' : 'Xac nhan xoa'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== ADD MEMBER MODAL ===== */}
+      {showAddMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-dark/70 backdrop-blur-sm" onClick={() => { setShowAddMember(false); setAddError(''); }} />
+          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-2xl shadow-2xl w-full max-w-lg mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-teal/20 rounded-full flex items-center justify-center flex-shrink-0">
+                    <svg className="w-5 h-5 text-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-bold text-white">Them thanh vien moi</h3>
+                </div>
+                <button onClick={() => { setShowAddMember(false); setAddError(''); }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {addError && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 mb-4 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm text-red-300">{addError}</span>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Ho ten <span className="text-red-400">*</span></label>
+                  <input
+                    type="text"
+                    value={addForm.name}
+                    onChange={e => setAddForm(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="Nguyen Van A"
+                    className="w-full bg-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors placeholder:text-gray-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Email <span className="text-red-400">*</span></label>
+                  <input
+                    type="email"
+                    value={addForm.email}
+                    onChange={e => setAddForm(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="email@example.com"
+                    className="w-full bg-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors placeholder:text-gray-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Mat khau <span className="text-red-400">*</span></label>
+                  <input
+                    type="password"
+                    value={addForm.password}
+                    onChange={e => setAddForm(prev => ({ ...prev, password: e.target.value }))}
+                    placeholder="It nhat 6 ky tu"
+                    className="w-full bg-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors placeholder:text-gray-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">So dien thoai</label>
+                  <input
+                    type="text"
+                    value={addForm.phone}
+                    onChange={e => setAddForm(prev => ({ ...prev, phone: e.target.value }))}
+                    placeholder="0901234567"
+                    className="w-full bg-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors placeholder:text-gray-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Hang tai khoan</label>
+                  <select
+                    value={addForm.memberLevel}
+                    onChange={e => setAddForm(prev => ({ ...prev, memberLevel: e.target.value }))}
+                    className="w-full bg-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-teal focus:ring-1 focus:ring-teal transition-colors"
+                  >
+                    <option value="Free">Free</option>
+                    <option value="Premium">Premium</option>
+                    <option value="VIP">VIP</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 mt-6 pt-4 border-t border-white/[0.06]">
+                <button
+                  onClick={() => { setShowAddMember(false); setAddError(''); }}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-gray-700 text-gray-300 text-sm font-semibold hover:bg-white/5 transition-colors"
+                >
+                  Huy
+                </button>
+                <button
+                  onClick={handleAddMember}
+                  disabled={addSaving || !addForm.name.trim() || !addForm.email.trim() || !addForm.password}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-teal text-white text-sm font-semibold hover:bg-teal/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {addSaving ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Dang tao...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                      </svg>
+                      Them thanh vien
+                    </>
+                  )}
                 </button>
               </div>
             </div>
