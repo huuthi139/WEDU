@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from 'react';
 import type { Course } from '@/lib/types';
 
 interface CoursesContextType {
@@ -18,8 +18,14 @@ export function CoursesProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const hasFetchedOnce = useRef(false);
+
   const fetchCourses = () => {
-    setIsLoading(true);
+    // Only show loading spinner on initial fetch, not on background refetches
+    // Background refetches silently update data without unmounting components
+    if (!hasFetchedOnce.current) {
+      setIsLoading(true);
+    }
     setError(null);
     fetch('/api/courses', { cache: 'no-store' })
       .then(res => res.json())
@@ -33,7 +39,10 @@ export function CoursesProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         setError('Lỗi kết nối - không thể tải khóa học');
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        setIsLoading(false);
+        hasFetchedOnce.current = true;
+      });
   };
 
   useEffect(() => {

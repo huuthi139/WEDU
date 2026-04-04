@@ -377,7 +377,14 @@ export default function LearnPage() {
     }
   }, [currentLessonId, chapters, courseId, markLessonComplete, userProfile, courseAccess]);
 
+  // Stable refs for callbacks so playerjs effect doesn't re-run when callbacks change
+  const handleVideoEndedRef = useRef(handleVideoEnded);
+  handleVideoEndedRef.current = handleVideoEnded;
+  const handleTimeUpdateRef = useRef(handleTimeUpdate);
+  handleTimeUpdateRef.current = handleTimeUpdate;
+
   // Attach player.js listener for Bunny CDN iframe ended event
+  // Only re-run when currentLessonId changes (new iframe), NOT when callbacks change
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) {
@@ -402,9 +409,9 @@ export default function LearnPage() {
         const player = new (window as any).playerjs.Player(iframe);
         playerRef.current = player;
         player.on('ready', () => {
-          player.on('ended', handleVideoEnded);
+          player.on('ended', () => handleVideoEndedRef.current());
           player.on('timeupdate', (data: { seconds: number; duration: number }) => {
-            handleTimeUpdate(data.seconds, data.duration);
+            handleTimeUpdateRef.current(data.seconds, data.duration);
           });
         });
       } catch (e) {
@@ -422,7 +429,8 @@ export default function LearnPage() {
       script?.removeEventListener('load', initPlayer);
       playerRef.current = null;
     };
-  }, [currentLessonId, handleVideoEnded, handleTimeUpdate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLessonId]);
 
   if (isLoading) {
     return (
