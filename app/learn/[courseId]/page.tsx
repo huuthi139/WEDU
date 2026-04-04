@@ -361,8 +361,8 @@ export default function LearnPage() {
         {/* Video Area */}
         <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${sidebarOpen ? '' : ''}`}>
           {/* Video Player */}
-          <div className="relative bg-dark">
-            <div className="relative aspect-video w-full max-h-[calc(100vh-280px)]">
+          <div className="relative bg-dark flex items-center justify-center">
+            <div className="relative aspect-video w-full max-h-[calc(100vh-64px)]">
               {currentLesson && !isLessonAccessible(currentLesson) ? (
                 /* Access denied overlay */
                 <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
@@ -433,7 +433,7 @@ export default function LearnPage() {
                   {currentChapter && (
                     <span className="text-gray-500">{currentChapter.title}</span>
                   )}
-                  {currentLesson?.duration && (
+                  {currentLesson?.duration && currentLesson.duration !== '00:00' && (
                     <span className="flex items-center gap-1 text-gray-400">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -560,7 +560,9 @@ export default function LearnPage() {
                                 <div className="min-w-0 flex-1">
                                   <p className={`text-sm truncate ${isActive ? 'text-teal font-semibold' : 'text-white'}`}>{lesson.title}</p>
                                   <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="text-xs text-gray-500">{lesson.duration}</span>
+                                    {lesson.duration && lesson.duration !== '00:00' && (
+                                      <span className="text-xs text-gray-500">{lesson.duration}</span>
+                                    )}
                                     <LevelBadgeSmall level={lesson.requiredLevel} accessTier={lesson.accessTier} />
                                   </div>
                                 </div>
@@ -744,7 +746,9 @@ export default function LearnPage() {
                             {lesson.title}
                           </p>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-gray-500">{lesson.duration}</span>
+                            {lesson.duration && lesson.duration !== '00:00' && (
+                              <span className="text-xs text-gray-500">{lesson.duration}</span>
+                            )}
                             <LevelBadgeSmall level={lesson.requiredLevel} accessTier={lesson.accessTier} />
                           </div>
                         </div>
@@ -824,7 +828,9 @@ export default function LearnPage() {
                             <div className="min-w-0 flex-1">
                               <p className={`text-sm truncate ${isActive ? 'text-teal font-semibold' : 'text-white'}`}>{lesson.title}</p>
                               <div className="flex items-center gap-2 mt-1">
-                                <span className="text-xs text-gray-500">{lesson.duration}</span>
+                                {lesson.duration && lesson.duration !== '00:00' && (
+                                  <span className="text-xs text-gray-500">{lesson.duration}</span>
+                                )}
                                 <LevelBadgeSmall level={lesson.requiredLevel} accessTier={lesson.accessTier} />
                               </div>
                             </div>
