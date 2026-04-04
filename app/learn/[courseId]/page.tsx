@@ -188,6 +188,8 @@ export default function LearnPage() {
       .then(data => {
         if (!cancelled && data.success && Array.isArray(data.chapters) && data.chapters.length > 0) {
           const normalized = normalizeChapters(data.chapters);
+          console.log('CHAPTERS:', normalized);
+          console.log('FIRST LESSON:', normalized[0]?.lessons[0]);
           setChapters(normalized);
           try { localStorage.setItem(`wedu-chapters-${courseId}`, JSON.stringify(normalized)); } catch (error) { console.error('[LearnPage] localStorage error:', error instanceof Error ? error.message : String(error)); }
         }
@@ -235,6 +237,123 @@ export default function LearnPage() {
   // Auto-advance: refs and hooks must be before early returns
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const playerRef = useRef<any>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // --- Progress tracking refs ---
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
+  const lastSaveRef = useRef(0); // timestamp of last save
+  const SAVE_INTERVAL = 15_000; // save every 15 seconds
+
+  // Save progress to API (fire-and-forget)
+  const saveProgress = useCallback((position?: number) => {
+    const pos = position ?? currentTimeRef.current;
+    const dur = durationRef.current;
+    if (!currentLessonId || pos <= 0) return;
+
+    fetch('/api/lessons/progress', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        courseId,
+        lessonId: currentLessonId,
+        positionSeconds: Math.floor(pos),
+        durationSeconds: Math.floor(dur),
+      }),
+    }).catch(() => {/* ignore network errors */});
+    lastSaveRef.current = Date.now();
+  }, [courseId, currentLessonId]);
+
+  // Throttled time update handler (for both HTML5 video and playerjs)
+  const handleTimeUpdate = useCallback((seconds: number, duration: number) => {
+    currentTimeRef.current = seconds;
+    if (duration > 0) durationRef.current = duration;
+
+    if (Date.now() - lastSaveRef.current >= SAVE_INTERVAL) {
+      saveProgress(seconds);
+    }
+  }, [saveProgress]);
+
+  // Restore progress when lesson changes: fetch saved position, then seek
+  useEffect(() => {
+    if (!currentLessonId || !courseId) return;
+    let cancelled = false;
+
+    // Reset refs for new lesson
+    currentTimeRef.current = 0;
+    durationRef.current = 0;
+    lastSaveRef.current = 0;
+
+    fetch(`/api/lessons/progress?courseId=${courseId}&lessonId=${currentLessonId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (cancelled || !data.success || !data.progress) return;
+        const savedPosition = data.progress.position_seconds || 0;
+        if (savedPosition <= 5) return; // don't bother seeking for < 5s
+
+        // For HTML5 <video>
+        const video = videoRef.current;
+        if (video) {
+          const trySeekVideo = () => {
+            if (video.readyState >= 1 && savedPosition < video.duration) {
+              video.currentTime = savedPosition;
+            }
+          };
+          if (video.readyState >= 1) {
+            trySeekVideo();
+          } else {
+            video.addEventListener('loadedmetadata', trySeekVideo, { once: true });
+          }
+          return;
+        }
+
+        // For Bunny iframe via playerjs: wait for player ready, then seek
+        const seekWhenReady = () => {
+          const player = playerRef.current;
+          if (!player) return;
+          const doSeek = () => {
+            try { player.setCurrentTime(savedPosition); } catch { /* ignore */ }
+          };
+          // player might already be ready
+          try {
+            player.getCurrentTime((t: number) => {
+              // player is ready, seek now
+              doSeek();
+            });
+          } catch {
+            // Not ready yet, wait for ready event
+            player.on('ready', doSeek);
+          }
+        };
+
+        // Small delay to let playerjs initialize after iframe mount
+        const timerId = setTimeout(seekWhenReady, 500);
+        // Also try again after a longer delay for slow-loading videos
+        const timerId2 = setTimeout(seekWhenReady, 2500);
+        // Store cleanup
+        return () => { clearTimeout(timerId); clearTimeout(timerId2); };
+      })
+      .catch(() => {/* ignore */});
+
+    return () => { cancelled = true; };
+  }, [currentLessonId, courseId]);
+
+  // Save progress on visibility change (tab switch) and before unload
+  useEffect(() => {
+    const onVisChange = () => {
+      if (document.visibilityState === 'hidden') saveProgress();
+    };
+    const onBeforeUnload = () => saveProgress();
+
+    document.addEventListener('visibilitychange', onVisChange);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisChange);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      // Save on cleanup (lesson change)
+      saveProgress();
+    };
+  }, [saveProgress]);
 
   const handleVideoEnded = useCallback(() => {
     // Mark current lesson complete
@@ -284,6 +403,9 @@ export default function LearnPage() {
         playerRef.current = player;
         player.on('ready', () => {
           player.on('ended', handleVideoEnded);
+          player.on('timeupdate', (data: { seconds: number; duration: number }) => {
+            handleTimeUpdate(data.seconds, data.duration);
+          });
         });
       } catch (e) {
         console.warn('[LearnPage] playerjs init error:', e);
@@ -300,7 +422,7 @@ export default function LearnPage() {
       script?.removeEventListener('load', initPlayer);
       playerRef.current = null;
     };
-  }, [currentLessonId, handleVideoEnded]);
+  }, [currentLessonId, handleVideoEnded, handleTimeUpdate]);
 
   if (isLoading) {
     return (
@@ -435,8 +557,8 @@ export default function LearnPage() {
         {/* Video Area */}
         <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${sidebarOpen ? '' : ''}`}>
           {/* Video Player */}
-          <div className="relative bg-black">
-            <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', height: 0, overflow: 'hidden', backgroundColor: '#000' }}>
+          <div className="w-full bg-black" style={{ aspectRatio: '16/9' }}>
+            <div className="relative w-full h-full">
               {currentLesson && !isLessonAccessible(currentLesson) ? (
                 /* Access denied overlay */
                 <div className="absolute inset-0 flex items-center justify-center bg-white/[0.03]">
@@ -464,22 +586,27 @@ export default function LearnPage() {
                       ref={iframeRef}
                       key={currentLesson.directPlayUrl}
                       src={normalizeBunnyEmbedUrl(currentLesson.directPlayUrl)}
-                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-                      loading="lazy"
-                      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
+                      className="w-full h-full"
+                      style={{ border: 'none', display: 'block' }}
+                      allow="autoplay; fullscreen"
                       allowFullScreen
                     />
                 ) : (
                   <video
+                    ref={videoRef}
                     key={currentLesson.directPlayUrl}
                     src={currentLesson.directPlayUrl}
                     controls
                     autoPlay
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
-                    className="bg-dark"
+                    className="w-full h-full bg-dark"
+                    style={{ display: 'block' }}
                     controlsList="nodownload"
                     playsInline
                     onEnded={handleVideoEnded}
+                    onTimeUpdate={(e) => {
+                      const v = e.currentTarget;
+                      handleTimeUpdate(v.currentTime, v.duration);
+                    }}
                   />
                 )
               ) : (
