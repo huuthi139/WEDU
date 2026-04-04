@@ -86,8 +86,12 @@ export function CourseCard({ course, showProgress = false, hasAccess = false }: 
 
           {/* Meta */}
           <div className="flex items-center gap-3 text-xs text-gray-500 mb-4">
-            <span>{formatDuration(course.duration)}</span>
-            <span className="text-gray-700">·</span>
+            {course.duration > 0 && (
+              <>
+                <span>{formatDuration(course.duration)}</span>
+                <span className="text-gray-700">·</span>
+              </>
+            )}
             <span>{course.lessonsCount} bài học</span>
           </div>
 

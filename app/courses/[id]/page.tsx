@@ -19,6 +19,7 @@ import type { MemberLevel, AccessTier } from '@/lib/types';
 import { meetsAccessTier, accessTierLabel } from '@/lib/types';
 import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
 import { canAccessLesson, isStaff, getLessonCTALabel } from '@/lib/access-control';
+import { useVideoDurations, formatSecondsToMMSS, formatSecondsFull } from '@/lib/hooks/useVideoDurations';
 
 const defaultChapters: Chapter[] = [];
 
@@ -143,6 +144,10 @@ export default function CourseDetail() {
   };
 
   const course = courses.find(c => c.id === params.id);
+
+  // Probe video durations (must be before early returns)
+  const allLessonsFlat = chapters.flatMap(ch => ch.lessons);
+  const videoDurations = useVideoDurations(allLessonsFlat);
 
   if (isLoading) {
     return (
@@ -386,7 +391,11 @@ export default function CourseDetail() {
               <div className="space-y-4 animate-fadeIn">
                 <div className="flex items-center justify-between mb-4">
                   <p className="text-gray-400">
-                    {chapters.length} phần - {totalLessons} bài học - {formatDuration(course.duration)}
+                    {chapters.length} phần - {totalLessons} bài học
+                    {(() => {
+                      const totalSec = allLessonsFlat.reduce((s, ls) => s + (videoDurations[ls.id] || 0), 0);
+                      return totalSec > 0 ? ` - ${formatSecondsFull(totalSec)}` : '';
+                    })()}
                   </p>
                   <button
                     onClick={() => setExpandedSections(
@@ -419,7 +428,13 @@ export default function CourseDetail() {
                           Phần {sectionIndex + 1}: {section.title}
                         </span>
                       </div>
-                      <span className="text-sm text-gray-400">{section.lessons.length} bài học</span>
+                      <span className="text-sm text-gray-400">
+                        {section.lessons.length} bài học
+                        {(() => {
+                          const chSec = section.lessons.reduce((s, ls) => s + (videoDurations[ls.id] || 0), 0);
+                          return chSec > 0 ? ` · ${formatSecondsFull(chSec)}` : '';
+                        })()}
+                      </span>
                     </button>
 
                     {expandedSections.includes(sectionIndex) && (
@@ -481,7 +496,9 @@ export default function CourseDetail() {
                                   {lesson.accessTier === 'free' ? 'FREE' : accessTierLabel(lesson.accessTier)}
                                 </span>
                               </div>
-                              <span className="text-sm text-gray-500 flex-shrink-0 ml-3">{lesson.duration}</span>
+                              {videoDurations[lesson.id] ? (
+                                <span className="text-sm text-gray-500 flex-shrink-0 ml-3">{formatSecondsToMMSS(videoDurations[lesson.id])}</span>
+                              ) : null}
                             </div>
                           );
                         })}
@@ -680,7 +697,10 @@ export default function CourseDetail() {
                       <svg className="w-5 h-5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                       </svg>
-                      {formatDuration(course.duration)} video bài giảng
+                      {(() => {
+                        const totalSec = allLessonsFlat.reduce((s, ls) => s + (videoDurations[ls.id] || 0), 0);
+                        return totalSec > 0 ? `${formatSecondsFull(totalSec)} video bài giảng` : 'Video bài giảng';
+                      })()}
                     </div>
                     <div className="flex items-center gap-3 text-sm text-gray-400">
                       <svg className="w-5 h-5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
