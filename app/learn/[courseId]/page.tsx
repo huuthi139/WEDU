@@ -229,6 +229,76 @@ export default function LearnPage() {
     }
   }, [chapters, currentLessonId, courseAccessTier]);
 
+  // Auto-advance: refs and hooks must be before early returns
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const playerRef = useRef<any>(null);
+
+  const handleVideoEnded = useCallback(() => {
+    // Mark current lesson complete
+    if (currentLessonId) {
+      const total = chapters.reduce((sum, ch) => sum + ch.lessons.length, 0);
+      markLessonComplete(courseId, currentLessonId, total);
+    }
+    // Find and go to next accessible lesson
+    const all = chapters.flatMap(ch => ch.lessons.map(ls => ({ ...ls, chapterId: ch.id })));
+    const idx = all.findIndex(ls => ls.id === currentLessonId);
+    if (idx >= 0 && idx < all.length - 1) {
+      const next = all[idx + 1];
+      if (canAccessLesson(userProfile, courseAccess, { accessTier: next.accessTier })) {
+        setCurrentLessonId(next.id);
+        setExpandedChapters(prev => {
+          const s = new Set(prev);
+          s.add(next.chapterId);
+          return s;
+        });
+      }
+    }
+  }, [currentLessonId, chapters, courseId, markLessonComplete, userProfile, courseAccess]);
+
+  // Attach player.js listener for Bunny CDN iframe ended event
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) {
+      playerRef.current = null;
+      return;
+    }
+
+    // Load player.js script if not already loaded
+    const scriptId = 'playerjs-script';
+    let script = document.getElementById(scriptId) as HTMLScriptElement | null;
+    if (!script) {
+      script = document.createElement('script');
+      script.id = scriptId;
+      script.src = '//assets.mediadelivery.net/playerjs/playerjs-latest.min.js';
+      script.async = true;
+      document.head.appendChild(script);
+    }
+
+    const initPlayer = () => {
+      if (!(window as any).playerjs) return;
+      try {
+        const player = new (window as any).playerjs.Player(iframe);
+        playerRef.current = player;
+        player.on('ready', () => {
+          player.on('ended', handleVideoEnded);
+        });
+      } catch (e) {
+        console.warn('[LearnPage] playerjs init error:', e);
+      }
+    };
+
+    if ((window as any).playerjs) {
+      initPlayer();
+    } else {
+      script.addEventListener('load', initPlayer);
+    }
+
+    return () => {
+      script?.removeEventListener('load', initPlayer);
+      playerRef.current = null;
+    };
+  }, [currentLessonId, handleVideoEnded]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-dark flex items-center justify-center">
@@ -314,6 +384,7 @@ export default function LearnPage() {
     });
   };
 
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] flex flex-col">
       {/* Top Header Bar */}
@@ -388,6 +459,7 @@ export default function LearnPage() {
                 isEmbedUrl(currentLesson.directPlayUrl) ? (
                   <div className="relative w-full h-full">
                     <iframe
+                      ref={iframeRef}
                       key={currentLesson.directPlayUrl}
                       src={normalizeBunnyEmbedUrl(currentLesson.directPlayUrl)}
                       className="absolute inset-0 w-full h-full"
@@ -406,6 +478,7 @@ export default function LearnPage() {
                     className="w-full h-full bg-dark"
                     controlsList="nodownload"
                     playsInline
+                    onEnded={handleVideoEnded}
                   />
                 )
               ) : (
