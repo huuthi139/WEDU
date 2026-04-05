@@ -97,6 +97,30 @@ export function StudentsTab({
   const [courseDetails, setCourseDetails] = useState<CourseDetail[]>([]);
   const [courseDetailsLoading, setCourseDetailsLoading] = useState(false);
 
+  // Course details for edit modal
+  const [editCourseDetails, setEditCourseDetails] = useState<CourseDetail[]>([]);
+  const [editCourseDetailsLoading, setEditCourseDetailsLoading] = useState(false);
+
+  // Fetch course details for edit modal
+  const fetchEditCourseDetails = useCallback(async (userId: string) => {
+    setEditCourseDetailsLoading(true);
+    setEditCourseDetails([]);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/courses`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.courses)) {
+        setEditCourseDetails(data.courses);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setEditCourseDetailsLoading(false);
+    }
+  }, []);
+
   // Fetch course details when expanding a student
   const fetchCourseDetails = useCallback(async (userId: string) => {
     setCourseDetailsLoading(true);
@@ -134,6 +158,7 @@ export function StudentsTab({
       member_level: student.memberLevel,
       status: student.status === 'Active' ? 'active' : 'inactive',
     });
+    fetchEditCourseDetails(student.id);
   };
 
   const handleSaveEdit = async () => {
@@ -486,7 +511,7 @@ export function StudentsTab({
       {editingStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-dark/70 backdrop-blur-sm" onClick={() => setEditingStudent(null)} />
-          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-2xl shadow-2xl w-full max-w-lg mx-4">
+          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-bold text-white">Chinh sua hoc vien</h3>
@@ -543,6 +568,62 @@ export function StudentsTab({
                   </select>
                 </div>
               </div>
+
+              {/* Course management section in edit modal */}
+              <div className="mt-6 pt-4 border-t border-white/[0.06]">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium text-gray-300">Khoa hoc da dang ky ({editCourseDetails.length})</label>
+                  <button
+                    onClick={() => setShowAddCourseModal(editingStudent.id)}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-teal/10 hover:bg-teal/20 text-teal text-xs font-semibold rounded-lg transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Them khoa hoc
+                  </button>
+                </div>
+                {editCourseDetailsLoading ? (
+                  <div className="text-center py-3">
+                    <span className="text-xs text-gray-400 animate-pulse">Dang tai...</span>
+                  </div>
+                ) : editCourseDetails.length === 0 ? (
+                  <div className="text-center py-3">
+                    <span className="text-xs text-gray-500">Chua co khoa hoc nao</span>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    {editCourseDetails.map(cd => (
+                      <div
+                        key={cd.course_access_id}
+                        className="flex items-center justify-between bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2"
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <svg className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
+                          <span className="text-xs text-white truncate">{cd.title}</span>
+                          <TierBadge tier={cd.access_tier} />
+                        </div>
+                        <button
+                          onClick={() => {
+                            handleRemoveCourse(editingStudent.id, cd.course_id);
+                            // Refresh edit modal courses after a short delay
+                            setTimeout(() => fetchEditCourseDetails(editingStudent.id), 500);
+                          }}
+                          className="flex-shrink-0 ml-2 w-6 h-6 flex items-center justify-center rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-colors"
+                          title="Xoa khoa hoc"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center gap-3 mt-6 pt-4 border-t border-white/[0.06]">
                 <button
                   onClick={() => setEditingStudent(null)}

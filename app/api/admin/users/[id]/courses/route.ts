@@ -37,6 +37,7 @@ export async function GET(
     .from('course_access')
     .select('id, course_id, access_tier, activated_at, expires_at, status, source, courses(id, title)')
     .eq('user_id', id)
+    .eq('status', 'active')
     .order('created_at', { ascending: false });
 
   if (error) {

@@ -157,11 +157,13 @@ export async function PATCH(request: NextRequest) {
 
   const id = body.id as string;
   const revokeUserId = body.user_id as string;
-  const revokeCourseId = body.course_id as string;
+  // Ensure course_id is coerced to the correct type (database may use integer)
+  const revokeCourseId = body.course_id != null ? String(body.course_id) : '';
   const action = body.action as string;
 
   // Support revoke by user_id + course_id
   if (action === 'revoke' && revokeUserId && revokeCourseId) {
+    // Try both string and number form for course_id to handle type mismatch
     const { data: record } = await supabase
       .from('course_access')
       .select('id')
@@ -172,7 +174,46 @@ export async function PATCH(request: NextRequest) {
       .maybeSingle();
 
     if (!record) {
-      return NextResponse.json({ success: false, error: 'Record not found' }, { status: 404 });
+      // Try with numeric course_id in case of type mismatch
+      const numericId = parseInt(revokeCourseId, 10);
+      if (!isNaN(numericId)) {
+        const { data: record2 } = await supabase
+          .from('course_access')
+          .select('id')
+          .eq('user_id', revokeUserId)
+          .eq('course_id', numericId)
+          .eq('status', 'active')
+          .limit(1)
+          .maybeSingle();
+
+        if (record2) {
+          // Found with numeric ID, proceed with revoke
+          const now = new Date().toISOString();
+          const { error } = await supabase
+            .from('course_access')
+            .update({ status: 'cancelled', updated_at: now })
+            .eq('id', record2.id);
+
+          if (error) {
+            return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+          }
+
+          writeAuditLog({
+            actorUserId,
+            actionType: 'course_access_revoke',
+            targetTable: 'course_access',
+            targetId: record2.id,
+            entityKey: `${revokeUserId}::${revokeCourseId}`,
+            oldValue: { status: 'active' },
+            newValue: { status: 'cancelled' },
+            status: 'success',
+          }).catch(() => {});
+
+          return NextResponse.json({ success: true });
+        }
+      }
+
+      return NextResponse.json({ success: false, error: 'Khong tim thay ban ghi hoac da bi xoa truoc do' }, { status: 404 });
     }
 
     const now = new Date().toISOString();
