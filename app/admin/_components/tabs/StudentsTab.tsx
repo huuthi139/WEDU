@@ -87,6 +87,56 @@ export function StudentsTab({
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Multi-select delete mode
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredStudents.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredStudents.map(s => s.id)));
+    }
+  };
+
+  const exitBulkMode = () => {
+    setBulkDeleteMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      const results = await Promise.allSettled(
+        Array.from(selectedIds).map(id =>
+          fetch(`/api/admin/users/${id}`, { method: 'DELETE', credentials: 'include' }).then(r => r.json())
+        )
+      );
+      const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success));
+      if (failed.length > 0) {
+        alert(`Da xoa ${selectedIds.size - failed.length}/${selectedIds.size} hoc vien. ${failed.length} that bai.`);
+      }
+      setBulkDeleteConfirm(false);
+      exitBulkMode();
+      onRefresh();
+    } catch {
+      alert('Khong the xoa. Vui long thu lai.');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   // Course details per expanded student
   const [courseDetails, setCourseDetails] = useState<CourseDetail[]>([]);
   const [courseDetailsLoading, setCourseDetailsLoading] = useState(false);
@@ -225,16 +275,52 @@ export function StudentsTab({
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={onRefresh}
-            disabled={studentsLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
-          >
-            <svg className={`w-3.5 h-3.5 ${studentsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Lam moi
-          </button>
+          {bulkDeleteMode ? (
+            <>
+              <span className="text-xs text-gray-400">
+                Da chon: <span className="text-white font-semibold">{selectedIds.size}</span>
+              </span>
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={() => setBulkDeleteConfirm(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500 text-white hover:bg-red-600 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Xoa {selectedIds.size} hoc vien
+                </button>
+              )}
+              <button
+                onClick={exitBulkMode}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                Huy
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setBulkDeleteMode(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Them/Xoa thanh vien
+              </button>
+              <button
+                onClick={onRefresh}
+                disabled={studentsLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+              >
+                <svg className={`w-3.5 h-3.5 ${studentsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Lam moi
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -267,6 +353,16 @@ export function StudentsTab({
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/[0.06]">
+                {bulkDeleteMode && (
+                  <th className="p-4 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={filteredStudents.length > 0 && selectedIds.size === filteredStudents.length}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-gray-600 bg-dark text-teal focus:ring-teal cursor-pointer accent-teal"
+                    />
+                  </th>
+                )}
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase w-8"></th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">Hoc vien</th>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase">SDT</th>
@@ -280,7 +376,7 @@ export function StudentsTab({
             <tbody>
               {filteredStudents.length === 0 && !studentsLoading && (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-gray-500 text-sm">
+                  <td colSpan={bulkDeleteMode ? 9 : 8} className="p-8 text-center text-gray-500 text-sm">
                     {studentsError ? 'Khong the tai du lieu hoc vien.' : 'Chua co hoc vien nao.'}
                   </td>
                 </tr>
@@ -291,9 +387,19 @@ export function StudentsTab({
                 return (
                   <Fragment key={student.id}>
                     <tr
-                      className="border-b border-white/[0.06]/50 hover:bg-white/[0.02] cursor-pointer"
-                      onClick={() => setExpandedStudent(isExpanded ? null : student.id)}
+                      className={`border-b border-white/[0.06]/50 hover:bg-white/[0.02] cursor-pointer ${bulkDeleteMode && selectedIds.has(student.id) ? 'bg-red-500/5' : ''}`}
+                      onClick={() => bulkDeleteMode ? toggleSelect(student.id) : setExpandedStudent(isExpanded ? null : student.id)}
                     >
+                      {bulkDeleteMode && (
+                        <td className="p-4 text-center" onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(student.id)}
+                            onChange={() => toggleSelect(student.id)}
+                            className="w-4 h-4 rounded border-gray-600 bg-dark text-teal focus:ring-teal cursor-pointer accent-teal"
+                          />
+                        </td>
+                      )}
                       <td className="p-4 text-center">
                         <svg
                           className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
@@ -354,7 +460,7 @@ export function StudentsTab({
                     {/* Expanded row: course details with tier + expiry */}
                     {isExpanded && (
                       <tr>
-                        <td colSpan={8} className="p-0">
+                        <td colSpan={bulkDeleteMode ? 9 : 8} className="p-0">
                           <div className="bg-dark/40 border-t border-white/[0.06]/50 px-8 py-4">
                             <div className="flex items-center justify-between mb-3">
                               <div className="text-xs font-semibold text-gray-400 uppercase">
@@ -498,6 +604,54 @@ export function StudentsTab({
                   className="flex-1 px-4 py-2.5 rounded-lg bg-teal text-white text-sm font-semibold hover:bg-teal/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {editSaving ? 'Dang luu...' : 'Cap nhat'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== BULK DELETE CONFIRM MODAL ===== */}
+      {bulkDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-dark/70 backdrop-blur-sm" onClick={() => setBulkDeleteConfirm(false)} />
+          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-2xl shadow-2xl w-full max-w-md mx-4">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Xoa nhieu hoc vien</h3>
+                  <p className="text-sm text-gray-400">Hanh dong nay khong the hoan tac</p>
+                </div>
+              </div>
+              <div className="bg-dark/50 border border-white/[0.06] rounded-lg p-4 mb-4 max-h-40 overflow-y-auto space-y-1">
+                {filteredStudents.filter(s => selectedIds.has(s.id)).map(s => (
+                  <div key={s.id} className="flex items-center gap-2">
+                    <span className="text-sm text-white">{s.name}</span>
+                    <span className="text-xs text-gray-500">{s.email}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm text-gray-300 mb-6">
+                Xoa <span className="text-red-400 font-semibold">{selectedIds.size}</span> hoc vien da chon? Toan bo quyen truy cap khoa hoc se bi xoa.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setBulkDeleteConfirm(false)}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-gray-700 text-gray-300 text-sm font-semibold hover:bg-white/5 transition-colors"
+                >
+                  Huy
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={bulkDeleting}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-50"
+                >
+                  {bulkDeleting ? 'Dang xoa...' : `Xac nhan xoa ${selectedIds.size}`}
                 </button>
               </div>
             </div>
