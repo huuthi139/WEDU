@@ -37,13 +37,24 @@ export interface Chapter {
 }
 
 /**
+ * Detect video type from URL
+ */
+export type VideoSourceType = 'bunny' | 'youtube' | 'mp4' | 'unknown';
+
+export function detectVideoType(url: string): VideoSourceType {
+  if (!url) return 'unknown';
+  if (/mediadelivery\.net/.test(url) || /video\.bunnycdn\.com/.test(url) || /b-cdn\.net/.test(url)) return 'bunny';
+  if (/youtube\.com/.test(url) || /youtu\.be/.test(url)) return 'youtube';
+  if (/\.mp4(\?|$)/.test(url)) return 'mp4';
+  return 'unknown';
+}
+
+/**
  * Check if URL is an embed URL (YouTube, Bunny CDN, etc.)
  */
 export function isEmbedUrl(url: string): boolean {
-  return /mediadelivery\.net\/(embed|play)/.test(url)
-    || /player\.mediadelivery\.net/.test(url)
-    || /iframe\.mediadelivery\.net/.test(url)
-    || /video\.bunnycdn\.com/.test(url);
+  const type = detectVideoType(url);
+  return type === 'bunny' || type === 'youtube';
 }
 
 /**
@@ -52,6 +63,51 @@ export function isEmbedUrl(url: string): boolean {
 export function normalizeBunnyEmbedUrl(url: string): string {
   if (!url) return url;
   return url.replace(/^(https?:\/\/)player\.mediadelivery\.net/, '$1iframe.mediadelivery.net');
+}
+
+/**
+ * Normalize YouTube URL to embed format
+ */
+export function normalizeYouTubeUrl(url: string): string {
+  if (!url) return '';
+
+  // Already embed URL
+  if (url.includes('youtube.com/embed/')) {
+    const base = url.split('?')[0];
+    return base + '?rel=0&modestbranding=1';
+  }
+
+  // youtube.com/watch?v=VIDEO_ID
+  const watchMatch = url.match(/youtube\.com\/watch\?v=([\w-]+)/);
+  if (watchMatch) {
+    return `https://www.youtube.com/embed/${watchMatch[1]}?rel=0&modestbranding=1`;
+  }
+
+  // youtu.be/VIDEO_ID
+  const shortMatch = url.match(/youtu\.be\/([\w-]+)/);
+  if (shortMatch) {
+    return `https://www.youtube.com/embed/${shortMatch[1]}?rel=0&modestbranding=1`;
+  }
+
+  // youtube.com/shorts/VIDEO_ID
+  const shortsMatch = url.match(/youtube\.com\/shorts\/([\w-]+)/);
+  if (shortsMatch) {
+    return `https://www.youtube.com/embed/${shortsMatch[1]}?rel=0&modestbranding=1`;
+  }
+
+  return url;
+}
+
+/**
+ * Get the proper embed URL for any video source type
+ */
+export function getVideoEmbedUrl(url: string): string {
+  const type = detectVideoType(url);
+  switch (type) {
+    case 'bunny': return normalizeBunnyEmbedUrl(url);
+    case 'youtube': return normalizeYouTubeUrl(url);
+    default: return url;
+  }
 }
 
 /**

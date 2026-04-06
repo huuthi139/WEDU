@@ -8,7 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCourseAccess } from '@/contexts/CourseAccessContext';
 import type { MemberLevel, AccessTier } from '@/lib/types';
 import { meetsAccessTier, accessTierLabel } from '@/lib/types';
-import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson } from '@/lib/utils/chapters';
+import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, detectVideoType, normalizeYouTubeUrl, type Chapter, type Lesson } from '@/lib/utils/chapters';
 import { canAccessLesson, isStaff, getLessonCTALabel } from '@/lib/access-control';
 import { formatSecondsToMMSS, formatSecondsFull } from '@/lib/hooks/useVideoDurations';
 
@@ -589,34 +589,52 @@ export default function LearnPage() {
                   </div>
                 </div>
               ) : currentLesson?.directPlayUrl ? (
-                isEmbedUrl(currentLesson.directPlayUrl) ? (
-                  <iframe
-                      ref={iframeRef}
+                (() => {
+                  const vType = detectVideoType(currentLesson.directPlayUrl);
+                  if (vType === 'bunny') {
+                    return (
+                      <iframe
+                        ref={iframeRef}
+                        key={currentLesson.directPlayUrl}
+                        src={normalizeBunnyEmbedUrl(currentLesson.directPlayUrl)}
+                        className="w-full h-full"
+                        style={{ border: 'none', display: 'block' }}
+                        allow="autoplay; fullscreen"
+                        allowFullScreen
+                      />
+                    );
+                  }
+                  if (vType === 'youtube') {
+                    return (
+                      <iframe
+                        key={currentLesson.directPlayUrl}
+                        src={normalizeYouTubeUrl(currentLesson.directPlayUrl)}
+                        className="w-full h-full"
+                        style={{ border: 'none', display: 'block' }}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                        allowFullScreen
+                      />
+                    );
+                  }
+                  return (
+                    <video
+                      ref={videoRef}
                       key={currentLesson.directPlayUrl}
-                      src={normalizeBunnyEmbedUrl(currentLesson.directPlayUrl)}
-                      className="w-full h-full"
-                      style={{ border: 'none', display: 'block' }}
-                      allow="autoplay; fullscreen"
-                      allowFullScreen
+                      src={currentLesson.directPlayUrl}
+                      controls
+                      autoPlay
+                      className="w-full h-full bg-dark"
+                      style={{ display: 'block' }}
+                      controlsList="nodownload"
+                      playsInline
+                      onEnded={handleVideoEnded}
+                      onTimeUpdate={(e) => {
+                        const v = e.currentTarget;
+                        handleTimeUpdate(v.currentTime, v.duration);
+                      }}
                     />
-                ) : (
-                  <video
-                    ref={videoRef}
-                    key={currentLesson.directPlayUrl}
-                    src={currentLesson.directPlayUrl}
-                    controls
-                    autoPlay
-                    className="w-full h-full bg-dark"
-                    style={{ display: 'block' }}
-                    controlsList="nodownload"
-                    playsInline
-                    onEnded={handleVideoEnded}
-                    onTimeUpdate={(e) => {
-                      const v = e.currentTarget;
-                      handleTimeUpdate(v.currentTime, v.duration);
-                    }}
-                  />
-                )
+                  );
+                })()
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center bg-white/[0.03]">
                   <div className="text-center">
