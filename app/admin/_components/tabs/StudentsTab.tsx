@@ -87,6 +87,56 @@ export function StudentsTab({
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Multi-select delete mode
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredStudents.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredStudents.map(s => s.id)));
+    }
+  };
+
+  const exitBulkMode = () => {
+    setBulkDeleteMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      const results = await Promise.allSettled(
+        Array.from(selectedIds).map(id =>
+          fetch(`/api/admin/users/${id}`, { method: 'DELETE', credentials: 'include' }).then(r => r.json())
+        )
+      );
+      const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success));
+      if (failed.length > 0) {
+        alert(`Da xoa ${selectedIds.size - failed.length}/${selectedIds.size} hoc vien. ${failed.length} that bai.`);
+      }
+      setBulkDeleteConfirm(false);
+      exitBulkMode();
+      onRefresh();
+    } catch {
+      alert('Khong the xoa. Vui long thu lai.');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   // Add member modal state
   const [showAddMember, setShowAddMember] = useState(false);
   const [addForm, setAddForm] = useState({ name: '', email: '', phone: '', password: '', memberLevel: 'Free' });
@@ -299,25 +349,61 @@ export function StudentsTab({
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowAddMember(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-teal text-white hover:bg-teal/80 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-            </svg>
-            Them thanh vien
-          </button>
-          <button
-            onClick={onRefresh}
-            disabled={studentsLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
-          >
-            <svg className={`w-3.5 h-3.5 ${studentsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Lam moi
-          </button>
+          {bulkDeleteMode ? (
+            <>
+              <span className="text-xs text-gray-400">
+                Da chon: <span className="text-white font-semibold">{selectedIds.size}</span>
+              </span>
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={() => setBulkDeleteConfirm(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500 text-white hover:bg-red-600 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Xoa {selectedIds.size} hoc vien
+                </button>
+              )}
+              <button
+                onClick={exitBulkMode}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                Huy
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setShowAddMember(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-teal text-white hover:bg-teal/80 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                </svg>
+                Them thanh vien
+              </button>
+              <button
+                onClick={() => setBulkDeleteMode(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Xoa nhieu
+              </button>
+              <button
+                onClick={onRefresh}
+                disabled={studentsLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+              >
+                <svg className={`w-3.5 h-3.5 ${studentsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Lam moi
+              </button>
+            </>
+          )}
         </div>
       </div>
 
