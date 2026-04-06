@@ -44,7 +44,7 @@ export type VideoSourceType = 'bunny' | 'youtube' | 'mp4' | 'unknown';
 export function detectVideoType(url: string): VideoSourceType {
   if (!url) return 'unknown';
   if (/mediadelivery\.net/.test(url) || /video\.bunnycdn\.com/.test(url) || /b-cdn\.net/.test(url)) return 'bunny';
-  if (/youtube\.com/.test(url) || /youtu\.be/.test(url)) return 'youtube';
+  if (/youtube\.com/.test(url) || /youtu\.be/.test(url) || /youtube-nocookie\.com/.test(url)) return 'youtube';
   if (/\.mp4(\?|$)/.test(url)) return 'mp4';
   return 'unknown';
 }
@@ -66,36 +66,52 @@ export function normalizeBunnyEmbedUrl(url: string): string {
 }
 
 /**
- * Normalize YouTube URL to embed format
+ * Normalize YouTube URL to embed format.
+ * Uses youtube-nocookie.com for privacy-enhanced mode (fewer blocks).
  */
 export function normalizeYouTubeUrl(url: string): string {
   if (!url) return '';
 
-  // Already embed URL
-  if (url.includes('youtube.com/embed/')) {
-    const base = url.split('?')[0];
-    return base + '?rel=0&modestbranding=1';
-  }
+  // Extract video ID from any YouTube URL format
+  let videoId: string | null = null;
+
+  // youtube.com/embed/VIDEO_ID or youtube-nocookie.com/embed/VIDEO_ID
+  const embedMatch = url.match(/youtube(?:-nocookie)?\.com\/embed\/([\w-]+)/);
+  if (embedMatch) videoId = embedMatch[1];
 
   // youtube.com/watch?v=VIDEO_ID
-  const watchMatch = url.match(/youtube\.com\/watch\?v=([\w-]+)/);
-  if (watchMatch) {
-    return `https://www.youtube.com/embed/${watchMatch[1]}?rel=0&modestbranding=1`;
+  if (!videoId) {
+    const watchMatch = url.match(/youtube\.com\/watch\?v=([\w-]+)/);
+    if (watchMatch) videoId = watchMatch[1];
   }
 
   // youtu.be/VIDEO_ID
-  const shortMatch = url.match(/youtu\.be\/([\w-]+)/);
-  if (shortMatch) {
-    return `https://www.youtube.com/embed/${shortMatch[1]}?rel=0&modestbranding=1`;
+  if (!videoId) {
+    const shortMatch = url.match(/youtu\.be\/([\w-]+)/);
+    if (shortMatch) videoId = shortMatch[1];
   }
 
   // youtube.com/shorts/VIDEO_ID
-  const shortsMatch = url.match(/youtube\.com\/shorts\/([\w-]+)/);
-  if (shortsMatch) {
-    return `https://www.youtube.com/embed/${shortsMatch[1]}?rel=0&modestbranding=1`;
+  if (!videoId) {
+    const shortsMatch = url.match(/youtube\.com\/shorts\/([\w-]+)/);
+    if (shortsMatch) videoId = shortsMatch[1];
   }
 
-  return url;
+  // youtube.com/live/VIDEO_ID
+  if (!videoId) {
+    const liveMatch = url.match(/youtube\.com\/live\/([\w-]+)/);
+    if (liveMatch) videoId = liveMatch[1];
+  }
+
+  // v= anywhere in query string
+  if (!videoId) {
+    const vParam = url.match(/[?&]v=([\w-]+)/);
+    if (vParam) videoId = vParam[1];
+  }
+
+  if (!videoId) return url;
+
+  return `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1`;
 }
 
 /**
