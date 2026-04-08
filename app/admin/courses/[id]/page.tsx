@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { formatPrice } from '@/lib/utils';
-import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, type Chapter, type Lesson, type ChapterLessonType } from '@/lib/utils/chapters';
+import { isEmbedUrl, normalizeBunnyEmbedUrl, normalizeChapters, detectVideoType, getVideoEmbedUrl, type Chapter, type Lesson, type ChapterLessonType } from '@/lib/utils/chapters';
 
 // Helper: format seconds to MM:SS
 function formatSecondsToMMSS(totalSeconds: number): string {
@@ -57,7 +57,34 @@ type ModalType =
   | { kind: 'deleteChapter'; chapterId: string }
   | { kind: 'addLesson'; chapterId: string }
   | { kind: 'editLesson'; chapterId: string; lessonId: string }
-  | { kind: 'deleteLesson'; chapterId: string; lessonId: string };
+  | { kind: 'deleteLesson'; chapterId: string; lessonId: string }
+  | { kind: 'quiz'; lessonId: string; lessonTitle: string; chapterId: string };
+
+interface QuizQuestionOption {
+  id: string;
+  text: string;
+  isCorrect: boolean;
+}
+
+interface QuizQuestionForm {
+  id: string;
+  question: string;
+  type: 'single' | 'multiple' | 'text';
+  options: QuizQuestionOption[];
+  explanation: string;
+  points: number;
+}
+
+interface QuizForm {
+  id?: string;
+  title: string;
+  description: string;
+  timeLimitMinutes: number;
+  passScore: number;
+  maxAttempts: number;
+  isRequired: boolean;
+  questions: QuizQuestionForm[];
+}
 
 export default function CourseContentPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -284,6 +311,182 @@ export default function CourseContentPage({ params }: { params: { id: string } }
   const [lessonImageUrl, setLessonImageUrl] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
   const [durationLoading, setDurationLoading] = useState(false);
+
+  // Quiz form state
+  const [quizForm, setQuizForm] = useState<QuizForm>({
+    title: '', description: '', timeLimitMinutes: 0, passScore: 70,
+    maxAttempts: 3, isRequired: false, questions: [],
+  });
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizSaving, setQuizSaving] = useState(false);
+
+  const openQuizModal = useCallback(async (lessonId: string, lessonTitle: string, chapterId: string) => {
+    setModal({ kind: 'quiz', lessonId, lessonTitle, chapterId });
+    setQuizLoading(true);
+    try {
+      const res = await fetch(`/api/admin/quiz?lessonId=${lessonId}`);
+      const data = await res.json();
+      if (data.success && data.data && data.data.length > 0) {
+        const existing = data.data[0];
+        setQuizForm({
+          id: existing.id,
+          title: existing.title,
+          description: existing.description,
+          timeLimitMinutes: existing.timeLimitMinutes,
+          passScore: existing.passScore,
+          maxAttempts: existing.maxAttempts,
+          isRequired: existing.isRequired,
+          questions: (existing.questions || []).map((q: any) => ({
+            id: q.id,
+            question: q.question,
+            type: q.type,
+            options: q.options || [],
+            explanation: q.explanation,
+            points: q.points,
+          })),
+        });
+      } else {
+        setQuizForm({
+          title: `Quiz: ${lessonTitle}`,
+          description: '', timeLimitMinutes: 0, passScore: 70,
+          maxAttempts: 3, isRequired: false, questions: [],
+        });
+      }
+    } catch {
+      setQuizForm({
+        title: `Quiz: ${lessonTitle}`,
+        description: '', timeLimitMinutes: 0, passScore: 70,
+        maxAttempts: 3, isRequired: false, questions: [],
+      });
+    } finally {
+      setQuizLoading(false);
+    }
+  }, []);
+
+  const addQuizQuestion = useCallback(() => {
+    setQuizForm(prev => ({
+      ...prev,
+      questions: [...prev.questions, {
+        id: `q-${Date.now()}`,
+        question: '',
+        type: 'single',
+        options: [
+          { id: `o-${Date.now()}-1`, text: '', isCorrect: true },
+          { id: `o-${Date.now()}-2`, text: '', isCorrect: false },
+        ],
+        explanation: '',
+        points: 1,
+      }],
+    }));
+  }, []);
+
+  const removeQuizQuestion = useCallback((qIdx: number) => {
+    setQuizForm(prev => ({
+      ...prev,
+      questions: prev.questions.filter((_, i) => i !== qIdx),
+    }));
+  }, []);
+
+  const updateQuizQuestion = useCallback((qIdx: number, field: string, value: any) => {
+    setQuizForm(prev => ({
+      ...prev,
+      questions: prev.questions.map((q, i) => i === qIdx ? { ...q, [field]: value } : q),
+    }));
+  }, []);
+
+  const addQuizOption = useCallback((qIdx: number) => {
+    setQuizForm(prev => ({
+      ...prev,
+      questions: prev.questions.map((q, i) => i === qIdx ? {
+        ...q,
+        options: [...q.options, { id: `o-${Date.now()}`, text: '', isCorrect: false }],
+      } : q),
+    }));
+  }, []);
+
+  const removeQuizOption = useCallback((qIdx: number, oIdx: number) => {
+    setQuizForm(prev => ({
+      ...prev,
+      questions: prev.questions.map((q, i) => i === qIdx ? {
+        ...q,
+        options: q.options.filter((_, j) => j !== oIdx),
+      } : q),
+    }));
+  }, []);
+
+  const updateQuizOption = useCallback((qIdx: number, oIdx: number, field: string, value: any) => {
+    setQuizForm(prev => ({
+      ...prev,
+      questions: prev.questions.map((q, i) => {
+        if (i !== qIdx) return q;
+        const newOptions = q.options.map((o, j) => {
+          if (j !== oIdx) return field === 'isCorrect' && q.type === 'single' && value ? { ...o, isCorrect: false } : o;
+          return { ...o, [field]: value };
+        });
+        return { ...q, options: newOptions };
+      }),
+    }));
+  }, []);
+
+  const saveQuiz = useCallback(async (lessonId: string) => {
+    setQuizSaving(true);
+    try {
+      if (quizForm.id) {
+        // Update existing quiz
+        await fetch(`/api/admin/quiz/${quizForm.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: quizForm.title,
+            description: quizForm.description,
+            timeLimitMinutes: quizForm.timeLimitMinutes,
+            passScore: quizForm.passScore,
+            maxAttempts: quizForm.maxAttempts,
+            isRequired: quizForm.isRequired,
+          }),
+        });
+        // Update questions
+        await fetch(`/api/admin/quiz/${quizForm.id}/questions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ questions: quizForm.questions }),
+        });
+      } else {
+        // Create new quiz
+        await fetch('/api/admin/quiz', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lessonId,
+            courseId: id,
+            title: quizForm.title,
+            description: quizForm.description,
+            timeLimitMinutes: quizForm.timeLimitMinutes,
+            passScore: quizForm.passScore,
+            maxAttempts: quizForm.maxAttempts,
+            isRequired: quizForm.isRequired,
+            questions: quizForm.questions,
+          }),
+        });
+      }
+      setModal({ kind: 'none' });
+    } catch (err) {
+      console.error('Quiz save error:', err);
+    } finally {
+      setQuizSaving(false);
+    }
+  }, [quizForm, id]);
+
+  const deleteQuiz = useCallback(async () => {
+    if (!quizForm.id) return;
+    if (!confirm('Xoá quiz này? Tất cả kết quả làm bài sẽ bị mất.')) return;
+    try {
+      await fetch(`/api/admin/quiz/${quizForm.id}`, { method: 'DELETE' });
+      setModal({ kind: 'none' });
+    } catch (err) {
+      console.error('Quiz delete error:', err);
+    }
+  }, [quizForm.id]);
 
   // Upload file (reuses thumbnail upload endpoint)
   const handleFileUpload = useCallback(async (file: File) => {
@@ -1008,6 +1211,15 @@ export default function CourseContentPage({ params }: { params: { id: string } }
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0 ml-3">
                           <button
+                            onClick={() => openQuizModal(lesson.id, lesson.title, chapter.id)}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                            title="Quiz / Bài kiểm tra"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                            </svg>
+                          </button>
+                          <button
                             onClick={() => openEditLesson(chapter.id, lesson.id)}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
                             title="Chinh sua bai hoc"
@@ -1683,6 +1895,240 @@ export default function CourseContentPage({ params }: { params: { id: string } }
         </div>
       )}
 
+      {/* Quiz Modal */}
+      {modal.kind === 'quiz' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-dark/70 backdrop-blur-sm" onClick={() => setModal({ kind: 'none' })} />
+          <div className="relative bg-[#1a1a2e] border border-white/[0.06] rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-bold text-white">Quiz: {modal.lessonTitle}</h3>
+              <button onClick={() => setModal({ kind: 'none' })} className="text-gray-400 hover:text-white">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {quizLoading ? (
+              <div className="text-center py-12 text-gray-400">Đang tải...</div>
+            ) : (
+              <>
+                {/* Quiz Settings */}
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="col-span-2">
+                    <label className="block text-sm text-gray-400 mb-1">Tiêu đề</label>
+                    <input
+                      type="text"
+                      value={quizForm.title}
+                      onChange={(e) => setQuizForm(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full h-10 px-3 bg-white/5 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-teal"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm text-gray-400 mb-1">Mô tả</label>
+                    <textarea
+                      value={quizForm.description}
+                      onChange={(e) => setQuizForm(prev => ({ ...prev, description: e.target.value }))}
+                      rows={2}
+                      className="w-full px-3 py-2 bg-white/5 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-teal resize-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Thời gian (phút, 0=không giới hạn)</label>
+                    <input
+                      type="number"
+                      value={quizForm.timeLimitMinutes}
+                      onChange={(e) => setQuizForm(prev => ({ ...prev, timeLimitMinutes: parseInt(e.target.value) || 0 }))}
+                      className="w-full h-10 px-3 bg-white/5 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-teal"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Điểm đậu (%)</label>
+                    <input
+                      type="number"
+                      value={quizForm.passScore}
+                      onChange={(e) => setQuizForm(prev => ({ ...prev, passScore: parseInt(e.target.value) || 70 }))}
+                      className="w-full h-10 px-3 bg-white/5 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-teal"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Số lần làm tối đa</label>
+                    <input
+                      type="number"
+                      value={quizForm.maxAttempts}
+                      onChange={(e) => setQuizForm(prev => ({ ...prev, maxAttempts: parseInt(e.target.value) || 3 }))}
+                      className="w-full h-10 px-3 bg-white/5 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-teal"
+                    />
+                  </div>
+                  <div className="flex items-end pb-2">
+                    <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={quizForm.isRequired}
+                        onChange={(e) => setQuizForm(prev => ({ ...prev, isRequired: e.target.checked }))}
+                        className="rounded bg-white/5 border-gray-600"
+                      />
+                      Bắt buộc (phải pass mới được tiếp tục)
+                    </label>
+                  </div>
+                </div>
+
+                {/* Questions */}
+                <div className="border-t border-white/10 pt-4 mb-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-white font-semibold">Câu hỏi ({quizForm.questions.length})</h4>
+                    <button
+                      onClick={addQuizQuestion}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-teal/20 text-teal text-sm rounded-lg hover:bg-teal/30 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Thêm câu hỏi
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {quizForm.questions.map((q, qIdx) => (
+                      <div key={q.id} className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-xs font-bold text-gray-500">#{qIdx + 1}</span>
+                              <select
+                                value={q.type}
+                                onChange={(e) => updateQuizQuestion(qIdx, 'type', e.target.value)}
+                                className="h-7 px-2 bg-white/5 border border-gray-700 rounded text-xs text-gray-300 focus:outline-none"
+                              >
+                                <option value="single">1 đáp án đúng</option>
+                                <option value="multiple">Nhiều đáp án đúng</option>
+                                <option value="text">Tự luận</option>
+                              </select>
+                              <input
+                                type="number"
+                                value={q.points}
+                                onChange={(e) => updateQuizQuestion(qIdx, 'points', parseInt(e.target.value) || 1)}
+                                className="w-16 h-7 px-2 bg-white/5 border border-gray-700 rounded text-xs text-gray-300 focus:outline-none"
+                                title="Điểm"
+                                min={1}
+                              />
+                              <span className="text-xs text-gray-500">điểm</span>
+                            </div>
+                            <textarea
+                              value={q.question}
+                              onChange={(e) => updateQuizQuestion(qIdx, 'question', e.target.value)}
+                              placeholder="Nhập câu hỏi..."
+                              rows={2}
+                              className="w-full px-3 py-2 bg-white/5 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-teal resize-none"
+                            />
+                          </div>
+                          <button
+                            onClick={() => removeQuizQuestion(qIdx)}
+                            className="p-1 text-gray-500 hover:text-red-400 transition-colors flex-shrink-0"
+                            title="Xoá câu hỏi"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+
+                        {/* Options (for single/multiple) */}
+                        {q.type !== 'text' && (
+                          <div className="space-y-2 mb-3">
+                            {q.options.map((opt, oIdx) => (
+                              <div key={opt.id} className="flex items-center gap-2">
+                                <input
+                                  type={q.type === 'single' ? 'radio' : 'checkbox'}
+                                  checked={opt.isCorrect}
+                                  onChange={(e) => updateQuizOption(qIdx, oIdx, 'isCorrect', e.target.checked)}
+                                  name={`q-${q.id}-correct`}
+                                  className="flex-shrink-0"
+                                  title="Đáp án đúng"
+                                />
+                                <input
+                                  type="text"
+                                  value={opt.text}
+                                  onChange={(e) => updateQuizOption(qIdx, oIdx, 'text', e.target.value)}
+                                  placeholder={`Đáp án ${oIdx + 1}`}
+                                  className="flex-1 h-8 px-3 bg-white/5 border border-gray-700 rounded text-white text-sm focus:outline-none focus:border-teal"
+                                />
+                                {q.options.length > 2 && (
+                                  <button
+                                    onClick={() => removeQuizOption(qIdx, oIdx)}
+                                    className="p-1 text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => addQuizOption(qIdx)}
+                              className="text-xs text-teal hover:text-white transition-colors"
+                            >
+                              + Thêm đáp án
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Explanation */}
+                        <div>
+                          <input
+                            type="text"
+                            value={q.explanation}
+                            onChange={(e) => updateQuizQuestion(qIdx, 'explanation', e.target.value)}
+                            placeholder="Giải thích (hiện sau khi nộp bài)"
+                            className="w-full h-8 px-3 bg-white/5 border border-gray-700 rounded text-gray-400 text-xs focus:outline-none focus:border-teal"
+                          />
+                        </div>
+                      </div>
+                    ))}
+
+                    {quizForm.questions.length === 0 && (
+                      <div className="text-center py-8 text-gray-500 text-sm">
+                        Chưa có câu hỏi nào. Nhấn &quot;Thêm câu hỏi&quot; để bắt đầu.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center justify-between pt-4 border-t border-white/10">
+                  <div>
+                    {quizForm.id && (
+                      <button
+                        onClick={deleteQuiz}
+                        className="px-4 py-2 text-red-400 text-sm hover:bg-red-500/10 rounded-lg transition-colors"
+                      >
+                        Xoá Quiz
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setModal({ kind: 'none' })}
+                      className="px-4 py-2 text-gray-400 text-sm hover:text-white transition-colors"
+                    >
+                      Huỷ
+                    </button>
+                    <button
+                      onClick={() => saveQuiz(modal.lessonId)}
+                      disabled={quizSaving || !quizForm.title.trim()}
+                      className="px-6 py-2 bg-teal text-white text-sm font-semibold rounded-lg hover:bg-teal/80 disabled:opacity-50 transition-colors"
+                    >
+                      {quizSaving ? 'Đang lưu...' : quizForm.id ? 'Cập nhật Quiz' : 'Tạo Quiz'}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Video Preview Modal */}
       {previewVideo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1702,7 +2148,7 @@ export default function CourseContentPage({ params }: { params: { id: string } }
                 {isEmbedUrl(previewVideo.directPlayUrl) ? (
                   <iframe
                     key={previewVideo.directPlayUrl}
-                    src={normalizeBunnyEmbedUrl(previewVideo.directPlayUrl)}
+                    src={getVideoEmbedUrl(previewVideo.directPlayUrl)}
                     className="w-full h-full"
                     style={{ border: 'none' }}
                     loading="lazy"

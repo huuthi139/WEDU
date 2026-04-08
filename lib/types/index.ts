@@ -622,6 +622,245 @@ export function lessonRowToFrontend(row: LessonRow): LessonFrontend {
   };
 }
 
+// =============================================
+// QUIZ (maps to public.quizzes)
+// =============================================
+
+export type QuizQuestionType = 'single' | 'multiple' | 'text';
+
+export interface Quiz {
+  id: string;
+  lessonId: string | null;
+  courseId: string | null;
+  title: string;
+  description: string;
+  timeLimitMinutes: number;
+  passScore: number;
+  maxAttempts: number;
+  isRequired: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QuizRow {
+  id: string;
+  lesson_id: string | null;
+  course_id: string | null;
+  title: string;
+  description: string;
+  time_limit_minutes: number;
+  pass_score: number;
+  max_attempts: number;
+  is_required: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuizQuestionOption {
+  id: string;
+  text: string;
+  isCorrect: boolean;
+}
+
+export interface QuizQuestion {
+  id: string;
+  quizId: string;
+  question: string;
+  type: QuizQuestionType;
+  options: QuizQuestionOption[];
+  explanation: string;
+  sortOrder: number;
+  points: number;
+  createdAt: string;
+}
+
+export interface QuizQuestionRow {
+  id: string;
+  quiz_id: string;
+  question: string;
+  type: string;
+  options: QuizQuestionOption[] | string;
+  explanation: string;
+  sort_order: number;
+  points: number;
+  created_at: string;
+}
+
+export interface QuizAttempt {
+  id: string;
+  quizId: string;
+  userId: string;
+  answers: Record<string, string[] | string>;
+  score: number;
+  maxScore: number;
+  passed: boolean;
+  startedAt: string;
+  completedAt: string | null;
+  attemptNumber: number;
+}
+
+export interface QuizAttemptRow {
+  id: string;
+  quiz_id: string;
+  user_id: string;
+  answers: Record<string, string[] | string> | string;
+  score: number;
+  max_score: number;
+  passed: boolean;
+  started_at: string;
+  completed_at: string | null;
+  attempt_number: number;
+}
+
+export function quizRowToFrontend(row: QuizRow): Quiz {
+  return {
+    id: row.id,
+    lessonId: row.lesson_id,
+    courseId: row.course_id,
+    title: row.title,
+    description: row.description || '',
+    timeLimitMinutes: row.time_limit_minutes || 0,
+    passScore: row.pass_score || 70,
+    maxAttempts: row.max_attempts || 3,
+    isRequired: row.is_required || false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function quizQuestionRowToFrontend(row: QuizQuestionRow): QuizQuestion {
+  const options = typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []);
+  return {
+    id: row.id,
+    quizId: row.quiz_id,
+    question: row.question,
+    type: (row.type || 'single') as QuizQuestionType,
+    options,
+    explanation: row.explanation || '',
+    sortOrder: row.sort_order || 0,
+    points: row.points || 1,
+    createdAt: row.created_at,
+  };
+}
+
+export function quizAttemptRowToFrontend(row: QuizAttemptRow): QuizAttempt {
+  const answers = typeof row.answers === 'string' ? JSON.parse(row.answers) : (row.answers || {});
+  return {
+    id: row.id,
+    quizId: row.quiz_id,
+    userId: row.user_id,
+    answers,
+    score: row.score,
+    maxScore: row.max_score,
+    passed: row.passed,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    attemptNumber: row.attempt_number,
+  };
+}
+
+// =============================================
+// NOTIFICATION (maps to public.notifications)
+// =============================================
+
+export type NotificationType = 'course_access' | 'quiz_passed' | 'quiz_failed' | 'lesson_complete' | 'new_lesson' | 'announcement' | 'welcome' | 'certificate';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link: string;
+  isRead: boolean;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface NotificationRow {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  link: string;
+  is_read: boolean;
+  metadata: Record<string, unknown> | string;
+  created_at: string;
+}
+
+export function notificationRowToFrontend(row: NotificationRow): AppNotification {
+  const metadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
+  return {
+    id: row.id,
+    userId: row.user_id,
+    type: row.type as NotificationType,
+    title: row.title,
+    message: row.message,
+    link: row.link || '',
+    isRead: row.is_read,
+    metadata,
+    createdAt: row.created_at,
+  };
+}
+
+// =============================================
+// DISCUSSION (maps to public.discussions)
+// =============================================
+
+export interface Discussion {
+  id: string;
+  lessonId: string;
+  courseId: string | null;
+  userId: string;
+  parentId: string | null;
+  content: string;
+  isPinned: boolean;
+  isResolved: boolean;
+  likesCount: number;
+  createdAt: string;
+  updatedAt: string;
+  // Joined fields
+  userName?: string;
+  userAvatar?: string;
+  userRole?: string;
+  replies?: Discussion[];
+  likedByMe?: boolean;
+}
+
+export interface DiscussionRow {
+  id: string;
+  lesson_id: string;
+  course_id: string | null;
+  user_id: string;
+  parent_id: string | null;
+  content: string;
+  is_pinned: boolean;
+  is_resolved: boolean;
+  likes_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export function discussionRowToFrontend(row: DiscussionRow & { user_name?: string; user_avatar?: string; user_role?: string }): Discussion {
+  return {
+    id: row.id,
+    lessonId: row.lesson_id,
+    courseId: row.course_id,
+    userId: row.user_id,
+    parentId: row.parent_id,
+    content: row.content,
+    isPinned: row.is_pinned || false,
+    isResolved: row.is_resolved || false,
+    likesCount: row.likes_count || 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    userName: row.user_name,
+    userAvatar: row.user_avatar,
+    userRole: row.user_role,
+  };
+}
+
 /** Legacy mapper - kept for backward compatibility */
 export function enrollmentRowToFrontend(row: EnrollmentRow): Enrollment {
   return {
