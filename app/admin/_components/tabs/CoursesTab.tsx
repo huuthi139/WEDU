@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import type { Course } from '@/lib/types';
 import { formatPrice, formatDuration } from '@/lib/utils';
@@ -28,6 +28,14 @@ export function CoursesTab({
   onEditCourse,
   onDeleteCourse,
 }: CoursesTabProps) {
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchedCourses = useMemo(() => {
+    if (!searchQuery.trim()) return courses;
+    const q = searchQuery.toLowerCase();
+    return courses.filter(c => c.title.toLowerCase().includes(q) || c.id.toLowerCase().includes(q));
+  }, [courses, searchQuery]);
+
   // Student management modal state
   const [manageCourse, setManageCourse] = useState<Course | null>(null);
   const [enrolledStudents, setEnrolledStudents] = useState<EnrolledStudent[]>([]);
@@ -134,8 +142,28 @@ export function CoursesTab({
   return (
     <div className="space-y-6">
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
-        <div className="p-6 border-b border-white/[0.06] flex items-center justify-between">
-          <h3 className="text-lg font-bold text-white">Tat ca khoa hoc ({courses.length})</h3>
+        <div className="p-6 border-b border-white/[0.06] flex items-center justify-between flex-wrap gap-3">
+          <h3 className="text-lg font-bold text-white">Khoa hoc ({searchedCourses.length}{searchQuery ? ` / ${courses.length}` : ''})</h3>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tim kiem..."
+                className="h-8 w-48 px-3 pl-8 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-teal transition-colors"
+              />
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
           <button
             onClick={onAddCourse}
             className="flex items-center gap-2 bg-teal hover:bg-teal/80 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
@@ -145,6 +173,7 @@ export function CoursesTab({
             </svg>
             Them khoa hoc
           </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -161,7 +190,7 @@ export function CoursesTab({
               </tr>
             </thead>
             <tbody>
-              {courses.map(course => (
+              {searchedCourses.map(course => (
                 <tr key={course.id} className="border-b border-white/[0.06]/50 hover:bg-white/[0.02]">
                   <td className="p-4 text-sm text-gray-400 font-mono">#{course.id}</td>
                   <td className="p-4">
