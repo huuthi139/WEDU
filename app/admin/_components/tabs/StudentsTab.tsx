@@ -78,6 +78,16 @@ export function StudentsTab({
   onRefresh,
   LevelBadge,
 }: StudentsTabProps) {
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const searchedStudents = searchQuery.trim()
+    ? filteredStudents.filter(s => {
+        const q = searchQuery.toLowerCase();
+        return s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q);
+      })
+    : filteredStudents;
+
   // Edit modal state
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [editForm, setEditForm] = useState({ name: '', phone: '', member_level: 'Free', status: 'active' });
@@ -102,10 +112,10 @@ export function StudentsTab({
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === filteredStudents.length) {
+    if (selectedIds.size === searchedStudents.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(filteredStudents.map(s => s.id)));
+      setSelectedIds(new Set(searchedStudents.map(s => s.id)));
     }
   };
 
@@ -393,10 +403,29 @@ export function StudentsTab({
         </div>
       )}
 
-      {/* Filter + Refresh */}
+      {/* Search + Filter + Refresh */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-400">Loc theo hang tai khoan:</span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tim kiem..."
+              className="h-8 w-48 px-3 pl-8 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-teal transition-colors"
+            />
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <span className="text-sm text-gray-400">Loc:</span>
           {(['all', 'Free', 'Premium', 'VIP'] as const).map(f => (
             <button
               key={f}
@@ -489,7 +518,7 @@ export function StudentsTab({
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
         <div className="p-6 border-b border-white/[0.06]">
           <h3 className="text-lg font-bold text-white">
-            Hoc vien ({filteredStudents.length})
+            Hoc vien ({searchedStudents.length}{searchQuery ? ` / ${filteredStudents.length}` : ''})
             {studentsLoading && <span className="text-sm text-gray-400 font-normal ml-2 animate-pulse">Dang tai...</span>}
           </h3>
         </div>
@@ -508,14 +537,14 @@ export function StudentsTab({
               </tr>
             </thead>
             <tbody>
-              {filteredStudents.length === 0 && !studentsLoading && (
+              {searchedStudents.length === 0 && !studentsLoading && (
                 <tr>
                   <td colSpan={8} className="p-8 text-center text-gray-500 text-sm">
                     {studentsError ? 'Khong the tai du lieu hoc vien.' : 'Chua co hoc vien nao.'}
                   </td>
                 </tr>
               )}
-              {filteredStudents.map(student => {
+              {searchedStudents.map(student => {
                 const isExpanded = expandedStudent === student.id;
 
                 return (
