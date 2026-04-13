@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
+import { createHash } from 'crypto';
 import { jwtVerify } from 'jose';
 import { hashPassword } from '@/lib/auth/password';
 import { getSecret } from '@/lib/auth/jwt';
+import { getSupabaseAdmin } from '@/lib/supabase/client';
 
 export async function POST(request: Request) {
   try {
@@ -14,15 +16,16 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
       return NextResponse.json(
-        { success: false, error: 'Mật khẩu mới phải có ít nhất 6 ký tự' },
+        { success: false, error: 'Mật khẩu mới phải có ít nhất 8 ký tự' },
         { status: 400 }
       );
     }
 
     // Verify reset token
     let email: string;
+    let tokenExp: number | undefined;
     try {
       const { payload } = await jwtVerify(token, getSecret());
       if (payload.purpose !== 'password-reset' || typeof payload.email !== 'string') {
@@ -32,9 +35,27 @@ export async function POST(request: Request) {
         );
       }
       email = payload.email;
+      tokenExp = payload.exp;
     } catch {
       return NextResponse.json(
         { success: false, error: 'Token đã hết hạn hoặc không hợp lệ. Vui lòng yêu cầu link mới.' },
+        { status: 400 }
+      );
+    }
+
+    // Check if token has already been used
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const supabase = getSupabaseAdmin();
+
+    const { data: usedToken } = await supabase
+      .from('used_reset_tokens')
+      .select('token_hash')
+      .eq('token_hash', tokenHash)
+      .single();
+
+    if (usedToken) {
+      return NextResponse.json(
+        { success: false, error: 'Token đã được sử dụng. Vui lòng yêu cầu link mới.' },
         { status: 400 }
       );
     }
@@ -52,6 +73,15 @@ export async function POST(request: Request) {
 
       const newHash = await hashPassword(newPassword);
       await updateUserProfile(email, { password_hash: newHash });
+
+      // Mark token as used
+      const expiresAt = tokenExp
+        ? new Date(tokenExp * 1000).toISOString()
+        : new Date(Date.now() + 3600_000).toISOString();
+
+      await supabase
+        .from('used_reset_tokens')
+        .insert({ token_hash: tokenHash, expires_at: expiresAt });
 
       return NextResponse.json({
         success: true,
