@@ -151,6 +151,11 @@ export function StudentsTab({
   const [editCourseDetails, setEditCourseDetails] = useState<CourseDetail[]>([]);
   const [editCourseDetailsLoading, setEditCourseDetailsLoading] = useState(false);
 
+  // Tier change modal state
+  const [tierModal, setTierModal] = useState<{ open: boolean; courseAccessId: string; courseTitle: string; currentTier: string } | null>(null);
+  const [tierSelected, setTierSelected] = useState('');
+  const [tierSaving, setTierSaving] = useState(false);
+
   // Fetch course details for edit modal
   const fetchEditCourseDetails = useCallback(async (userId: string) => {
     setEditCourseDetailsLoading(true);
@@ -299,6 +304,33 @@ export function StudentsTab({
       setAddError('Loi ket noi. Vui long thu lai.');
     } finally {
       setAddSaving(false);
+    }
+  };
+
+  const handleTierSave = async () => {
+    if (!tierModal || tierSelected === tierModal.currentTier) return;
+    setTierSaving(true);
+    try {
+      const res = await fetch(`/api/admin/course-access/${tierModal.courseAccessId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ accessTier: tierSelected }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Update local state without full refetch
+        setCourseDetails(prev => prev.map(cd =>
+          cd.course_access_id === tierModal.courseAccessId ? { ...cd, access_tier: tierSelected } : cd
+        ));
+        setTierModal(null);
+      } else {
+        alert(`Loi: ${data.error}`);
+      }
+    } catch {
+      alert('Khong the cap nhat. Vui long thu lai.');
+    } finally {
+      setTierSaving(false);
     }
   };
 
@@ -553,7 +585,17 @@ export function StudentsTab({
                                       </svg>
                                     </div>
                                     <span className="text-sm text-white truncate">{cd.title}</span>
-                                    <TierBadge tier={cd.access_tier} />
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setTierModal({ open: true, courseAccessId: cd.course_access_id, courseTitle: cd.title, currentTier: cd.access_tier });
+                                        setTierSelected(cd.access_tier);
+                                      }}
+                                      className="cursor-pointer hover:opacity-80 transition-opacity"
+                                      title="Click để đổi hạng"
+                                    >
+                                      <TierBadge tier={cd.access_tier} />
+                                    </button>
                                   </div>
                                   <div className="flex items-center gap-4 flex-shrink-0 ml-4">
                                     <div className="text-xs text-gray-500">
@@ -888,6 +930,63 @@ export function StudentsTab({
                       Them thanh vien
                     </>
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== TIER CHANGE MODAL ===== */}
+      {tierModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-dark/70 backdrop-blur-sm" onClick={() => setTierModal(null)} />
+          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-2xl shadow-2xl w-full max-w-sm mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-bold text-white">Doi hang</h3>
+                <button onClick={() => setTierModal(null)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-sm text-gray-400 mb-4 truncate" title={tierModal.courseTitle}>{tierModal.courseTitle}</p>
+              <div className="space-y-2">
+                {(['free', 'premium', 'vip'] as const).map(t => (
+                  <label
+                    key={t}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
+                      tierSelected === t
+                        ? 'border-teal bg-teal/10'
+                        : 'border-white/[0.06] hover:bg-white/[0.03]'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="tier"
+                      value={t}
+                      checked={tierSelected === t}
+                      onChange={() => setTierSelected(t)}
+                      className="accent-teal"
+                    />
+                    <TierBadge tier={t} />
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 mt-6 pt-4 border-t border-white/[0.06]">
+                <button
+                  onClick={() => setTierModal(null)}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-gray-700 text-gray-300 text-sm font-semibold hover:bg-white/5 transition-colors"
+                >
+                  Huy
+                </button>
+                <button
+                  onClick={handleTierSave}
+                  disabled={tierSaving || tierSelected === tierModal.currentTier}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-teal text-white text-sm font-semibold hover:bg-teal/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {tierSaving ? 'Dang luu...' : 'Luu thay doi'}
                 </button>
               </div>
             </div>
