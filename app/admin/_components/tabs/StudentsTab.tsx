@@ -151,10 +151,15 @@ export function StudentsTab({
   const [editCourseDetails, setEditCourseDetails] = useState<CourseDetail[]>([]);
   const [editCourseDetailsLoading, setEditCourseDetailsLoading] = useState(false);
 
-  // Tier change modal state
+  // Tier change modal state (course access)
   const [tierModal, setTierModal] = useState<{ open: boolean; courseAccessId: string; courseTitle: string; currentTier: string } | null>(null);
   const [tierSelected, setTierSelected] = useState('');
   const [tierSaving, setTierSaving] = useState(false);
+
+  // Member level modal state (user account)
+  const [levelModal, setLevelModal] = useState<{ userId: string; userName: string; currentLevel: MemberLevel } | null>(null);
+  const [levelSelected, setLevelSelected] = useState<MemberLevel>('Free');
+  const [levelSaving, setLevelSaving] = useState(false);
 
   // Fetch course details for edit modal
   const fetchEditCourseDetails = useCallback(async (userId: string) => {
@@ -331,6 +336,30 @@ export function StudentsTab({
       alert('Khong the cap nhat. Vui long thu lai.');
     } finally {
       setTierSaving(false);
+    }
+  };
+
+  const handleLevelSave = async () => {
+    if (!levelModal || levelSelected === levelModal.currentLevel) return;
+    setLevelSaving(true);
+    try {
+      const res = await fetch(`/api/admin/users/${levelModal.userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ member_level: levelSelected }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        onRefresh();
+        setLevelModal(null);
+      } else {
+        alert(`Loi: ${data.error}`);
+      }
+    } catch {
+      alert('Khong the cap nhat. Vui long thu lai.');
+    } finally {
+      setLevelSaving(false);
     }
   };
 
@@ -520,7 +549,19 @@ export function StudentsTab({
                         </div>
                       </td>
                       <td className="p-4 text-sm text-gray-400">{student.phone}</td>
-                      <td className="p-4"><LevelBadge level={student.memberLevel} /></td>
+                      <td className="p-4">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLevelModal({ userId: student.id, userName: student.name, currentLevel: student.memberLevel });
+                            setLevelSelected(student.memberLevel);
+                          }}
+                          className="cursor-pointer hover:opacity-80 transition-opacity"
+                          title="Click để đổi hạng thành viên"
+                        >
+                          <LevelBadge level={student.memberLevel} />
+                        </button>
+                      </td>
                       <td className="p-4 text-sm text-white font-semibold">{student.enrolledCourses.length}</td>
                       <td className="p-4 text-sm text-gray-400">{student.joinDate}</td>
                       <td className="p-4">
@@ -930,6 +971,64 @@ export function StudentsTab({
                       Them thanh vien
                     </>
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== MEMBER LEVEL MODAL ===== */}
+      {levelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-dark/70 backdrop-blur-sm" onClick={() => setLevelModal(null)} />
+          <div className="relative bg-white/[0.03] border border-white/[0.06] rounded-2xl shadow-2xl w-full max-w-sm mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-white">Doi hang thanh vien</h3>
+                <button onClick={() => setLevelModal(null)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-sm text-white mb-1 truncate" title={levelModal.userName}>{levelModal.userName}</p>
+              <p className="text-xs text-gray-500 mb-4">Hang thanh vien dung de phan loai, khong anh huong quyen truy cap khoa hoc</p>
+              <div className="space-y-2">
+                {(['Free', 'Premium', 'VIP'] as const).map(lvl => (
+                  <label
+                    key={lvl}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
+                      levelSelected === lvl
+                        ? 'border-teal bg-teal/10'
+                        : 'border-white/[0.06] hover:bg-white/[0.03]'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="level"
+                      value={lvl}
+                      checked={levelSelected === lvl}
+                      onChange={() => setLevelSelected(lvl)}
+                      className="accent-teal"
+                    />
+                    <LevelBadge level={lvl} />
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 mt-6 pt-4 border-t border-white/[0.06]">
+                <button
+                  onClick={() => setLevelModal(null)}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-gray-700 text-gray-300 text-sm font-semibold hover:bg-white/5 transition-colors"
+                >
+                  Huy
+                </button>
+                <button
+                  onClick={handleLevelSave}
+                  disabled={levelSaving || levelSelected === levelModal.currentLevel}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-teal text-white text-sm font-semibold hover:bg-teal/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {levelSaving ? 'Dang luu...' : 'Luu thay doi'}
                 </button>
               </div>
             </div>
