@@ -112,8 +112,23 @@ export async function middleware(request: NextRequest) {
     );
   }
 
+  // --- Affiliate ref cookie ---
+  const refParam = request.nextUrl.searchParams.get('ref');
+  const hasRefCookie = !!request.cookies.get('wedu-ref')?.value;
+
   // --- Security headers ---
   const response = NextResponse.next();
+
+  // Set ref cookie if ?ref= present and no existing cookie (first referrer wins)
+  if (refParam && !hasRefCookie) {
+    response.cookies.set('wedu-ref', refParam, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60, // 30 days
+      path: '/',
+    });
+  }
 
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-Frame-Options', 'DENY');
