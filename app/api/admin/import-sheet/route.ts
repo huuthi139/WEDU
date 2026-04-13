@@ -447,6 +447,57 @@ async function importCourseAccess(
   // Second pass: process unique pairs
   const processedPairs = new Set<string>();
 
+  // Batch pre-fetch: resolve emails → user IDs in one query
+  const allEmails = [...new Set(
+    actualRows
+      .map(row => normalizeEmail(getCol(row, 'email', 'Email', 'user_email', 'userId', 'student_email')))
+      .filter(Boolean)
+  )];
+  if (allEmails.length > 0 && !dryRun) {
+    // Supabase .in() max ~300 items, chunk if needed
+    for (let ci = 0; ci < allEmails.length; ci += 300) {
+      const chunk = allEmails.slice(ci, ci + 300);
+      const { data: existingUsers } = await supabase
+        .from('users')
+        .select('id, email')
+        .in('email', chunk);
+      if (existingUsers) {
+        for (const u of existingUsers) {
+          userCache.set(u.email.toLowerCase(), u.id);
+        }
+      }
+    }
+  }
+
+  // Batch pre-fetch: resolve course codes → IDs
+  const allCourseCodes = [...new Set(
+    actualRows
+      .map(row => getCol(row, 'course_code', 'courseCode', 'course_id', 'courseId', 'Mã khóa học').trim())
+      .filter(Boolean)
+  )];
+  if (allCourseCodes.length > 0 && !dryRun) {
+    const { data: coursesById } = await supabase
+      .from('courses')
+      .select('id')
+      .in('id', allCourseCodes);
+    if (coursesById) {
+      for (const c of coursesById) courseCache.set(c.id, c.id);
+    }
+    // Also try slug for unresolved codes
+    const unresolvedCodes = allCourseCodes.filter(code => !courseCache.has(code));
+    if (unresolvedCodes.length > 0) {
+      const { data: coursesBySlug } = await supabase
+        .from('courses')
+        .select('id, slug')
+        .in('slug', unresolvedCodes);
+      if (coursesBySlug) {
+        for (const c of coursesBySlug) {
+          if (c.slug) courseCache.set(c.slug, c.id);
+        }
+      }
+    }
+  }
+
   for (let i = 0; i < actualRows.length; i++) {
     const row = actualRows[i];
     const rowNum = i + 2;
@@ -743,6 +794,45 @@ async function importOrders(
   // Track extra stats for orders
   let usersCreated = 0;
   let usersExisted = 0;
+
+  // Batch pre-fetch: resolve emails → user IDs
+  if (!dryRun) {
+    const allEmails = [...new Set(rows.map(row => getEmail(row)).filter(Boolean))];
+    for (let ci = 0; ci < allEmails.length; ci += 300) {
+      const chunk = allEmails.slice(ci, ci + 300);
+      const { data: existingUsers } = await supabase
+        .from('users')
+        .select('id, email')
+        .in('email', chunk);
+      if (existingUsers) {
+        for (const u of existingUsers) userCache.set(u.email.toLowerCase(), u.id);
+      }
+    }
+
+    // Batch pre-fetch: resolve course codes → IDs
+    const allCourseCodes = [...new Set(rows.map(row => getCourseCode(row)).filter(Boolean))];
+    if (allCourseCodes.length > 0) {
+      const { data: coursesById } = await supabase
+        .from('courses')
+        .select('id')
+        .in('id', allCourseCodes);
+      if (coursesById) {
+        for (const c of coursesById) courseCache.set(c.id, c.id);
+      }
+      const unresolvedCodes = allCourseCodes.filter(code => !courseCache.has(code));
+      if (unresolvedCodes.length > 0) {
+        const { data: coursesBySlug } = await supabase
+          .from('courses')
+          .select('id, slug')
+          .in('slug', unresolvedCodes);
+        if (coursesBySlug) {
+          for (const c of coursesBySlug) {
+            if (c.slug) courseCache.set(c.slug, c.id);
+          }
+        }
+      }
+    }
+  }
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
