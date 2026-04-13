@@ -108,12 +108,6 @@ DO $$ BEGIN CREATE POLICY "allow_all_chapters" ON public.chapters FOR ALL USING 
 -- =============================================
 INSERT INTO public.courses (id, title, description, thumbnail, instructor, category, price, original_price, rating, reviews_count, enrollments_count, duration, lessons_count, badge, member_level, is_active)
 VALUES
-  ('course-001', 'Public Speaking Mastery', 'Khóa học giúp bạn tự tin thuyết trình trước đám đông, từ cơ bản đến nâng cao.', '', 'WEDU', 'Communication', 1500000, 2500000, 4.8, 156, 1250, 480, 24, 'Bestseller', 'Free', true),
-  ('course-002', 'Leadership & Team Building', 'Phát triển kỹ năng lãnh đạo và xây dựng đội nhóm hiệu quả.', '', 'WEDU', 'Leadership', 2000000, 3000000, 4.7, 98, 850, 600, 30, 'Hot', 'Premium', true),
-  ('course-003', 'Business English Communication', 'Tiếng Anh giao tiếp trong môi trường doanh nghiệp quốc tế.', '', 'WEDU', 'Language', 1200000, 1800000, 4.9, 234, 2100, 360, 18, 'Bestseller', 'Free', true),
-  ('course-004', 'Critical Thinking & Problem Solving', 'Tư duy phản biện và giải quyết vấn đề trong công việc.', '', 'WEDU', 'Soft Skills', 800000, 1200000, 4.6, 67, 520, 240, 12, NULL, 'Free', true),
-  ('course-005', 'Emotional Intelligence at Work', 'Nâng cao trí tuệ cảm xúc để thành công trong sự nghiệp.', '', 'WEDU', 'Soft Skills', 1000000, 1500000, 4.5, 89, 730, 300, 15, NULL, 'Premium', true),
-  ('course-006', 'Sales & Negotiation Skills', 'Kỹ năng bán hàng và đàm phán chuyên nghiệp.', '', 'WEDU', 'Business', 1800000, 2800000, 4.8, 178, 1580, 420, 21, 'Hot', 'VIP', true)
 ON CONFLICT (id) DO NOTHING;
 
 SELECT 'Migration completed successfully!' as result;
