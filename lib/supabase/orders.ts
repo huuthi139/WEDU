@@ -112,17 +112,95 @@ export async function getOrdersByUser(email: string): Promise<SupabaseOrder[]> {
 
 /**
  * Update order status
+ * When status = 'Hoàn thành': calculate 10% commission for referrer
  */
 export async function updateOrderStatus(orderId: string, status: string): Promise<boolean> {
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase
+  const { data: order, error } = await supabase
     .from('orders')
     .update({ status })
-    .eq('order_id', orderId);
+    .eq('order_id', orderId)
+    .select('order_id, user_id, total')
+    .single();
 
   if (error) {
     console.error('[Supabase Orders] Update status failed:', error.message);
     return false;
   }
+
+  // Commission on completion
+  if (status === 'Hoàn thành' && order?.user_id && order.total > 0) {
+    try {
+      await creditAffiliateCommission(supabase, order.user_id, order.order_id, order.total);
+    } catch (err) {
+      console.error('[Affiliate] Commission failed:', err);
+    }
+  }
+
   return true;
+}
+
+/**
+ * Credit 10% affiliate commission to referrer's wallet
+ */
+async function creditAffiliateCommission(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  buyerUserId: string,
+  orderId: string,
+  orderTotal: number,
+) {
+  // Find referrer
+  const { data: referral } = await supabase
+    .from('referrals')
+    .select('referrer_id')
+    .eq('referee_id', buyerUserId)
+    .single();
+
+  if (!referral) return; // no referrer
+
+  const commission = Math.round(orderTotal * 0.1); // 10%
+
+  // Upsert wallet (create if not exists)
+  const { data: wallet } = await supabase
+    .from('affiliate_wallets')
+    .upsert(
+      { user_id: referral.referrer_id, balance: 0, total_earned: 0 },
+      { onConflict: 'user_id' },
+    )
+    .select('id, balance, total_earned')
+    .single();
+
+  if (!wallet) return;
+
+  // Check duplicate: don't credit same order twice
+  const { data: existing } = await supabase
+    .from('affiliate_transactions')
+    .select('id')
+    .eq('wallet_id', wallet.id)
+    .eq('order_id', orderId)
+    .eq('type', 'commission')
+    .maybeSingle();
+
+  if (existing) return; // already credited
+
+  // Update wallet balance
+  await supabase
+    .from('affiliate_wallets')
+    .update({
+      balance: wallet.balance + commission,
+      total_earned: wallet.total_earned + commission,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', wallet.id);
+
+  // Insert transaction
+  await supabase
+    .from('affiliate_transactions')
+    .insert({
+      wallet_id: wallet.id,
+      type: 'commission',
+      amount: commission,
+      order_id: orderId,
+      description: `Hoa hồng 10% đơn hàng ${orderId}`,
+    });
 }
