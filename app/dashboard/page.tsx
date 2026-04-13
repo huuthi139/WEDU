@@ -178,6 +178,14 @@ export default function Dashboard() {
                   <span className="text-base">🔑</span>
                   Đổi mật khẩu
                 </Link>
+                <Link
+                  href="/dashboard/affiliate"
+                  onClick={() => setBadgeMenuOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  <span className="text-base">💰</span>
+                  Affiliate
+                </Link>
                 {user.memberLevel === 'Free' && user.role !== 'admin' && (
                   <Link
                     href="/pricing"
@@ -226,6 +234,26 @@ export default function Dashboard() {
             </Link>
           </div>
         )}
+
+        {/* Affiliate Quick Link */}
+        <div className="mb-8 p-4 bg-gold/5 border border-gold/20 rounded-xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gold/20 rounded-lg flex items-center justify-center">
+              <svg className="w-5 h-5 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-white font-semibold">Chương trình Affiliate</p>
+              <p className="text-sm text-gray-400">Giới thiệu bạn bè, nhận 10% hoa hồng</p>
+            </div>
+          </div>
+          <Link href="/dashboard/affiliate">
+            <Button variant="ghost" size="sm">
+              Xem chi tiết
+            </Button>
+          </Link>
+        </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">

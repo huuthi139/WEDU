@@ -244,13 +244,22 @@ export function Header() {
                 Cộng Đồng
               </Link>
               {user && (
-                <Link
-                  href="/certificates"
-                  className="text-white/70 hover:text-white transition-colors py-2"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Chứng chỉ
-                </Link>
+                <>
+                  <Link
+                    href="/certificates"
+                    className="text-white/70 hover:text-white transition-colors py-2"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    Chứng chỉ
+                  </Link>
+                  <Link
+                    href="/dashboard/affiliate"
+                    className="text-white/70 hover:text-white transition-colors py-2"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    Affiliate
+                  </Link>
+                </>
               )}
               {(user?.role === 'admin' || user?.role === 'sub_admin') && (
                 <Link
