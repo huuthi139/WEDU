@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { signToken, verifyToken } from '@/lib/auth/jwt';
 
 const mockUser = {
+  userId: '00000000-0000-0000-0000-000000000001',
   email: 'test@wedu.vn',
   role: 'student',
   name: 'Test User',

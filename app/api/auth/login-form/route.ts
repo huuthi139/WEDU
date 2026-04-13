@@ -40,6 +40,7 @@ export async function POST(request: Request) {
     const memberLevel = userProfile.member_level || 'Free';
 
     const token = await signToken({
+      userId: userProfile.id!,
       email: userProfile.email,
       role,
       name: userProfile.name,

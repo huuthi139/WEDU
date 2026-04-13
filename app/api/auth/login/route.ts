@@ -72,6 +72,7 @@ export async function POST(request: Request) {
 
     const role = normalizeRole(userProfile.role);
     const token = await signToken({
+      userId: userProfile.id!,
       email: userProfile.email,
       role,
       name: userProfile.name,

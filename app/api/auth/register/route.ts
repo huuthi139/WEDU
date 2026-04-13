@@ -33,13 +33,13 @@ export async function POST(request: Request) {
     }
 
     // Create user profile in Supabase (source of truth)
-    await createUserProfile({
+    const newUser = await createUserProfile({
       email, name, phone, passwordHash: hashedPassword, role: 'user', memberLevel: 'Free',
     });
 
     // Create session (set httpOnly cookie)
     try {
-      await createSession({ email, role: 'user', name, level: 'Free' });
+      await createSession({ userId: newUser.id!, email, role: 'user', name, level: 'Free' });
     } catch (sessionErr) {
       logger.error('auth.register', 'Session creation failed', {
         email,

@@ -21,6 +21,7 @@ describe('Security Regression Tests', () => {
 
   it('CRITICAL: JWT role cannot be forged via base64 manipulation', async () => {
     const studentToken = await signToken({
+      userId: '00000000-0000-0000-0000-000000000002',
       email: 'student@test.com',
       role: 'student',
       name: 'Student',
