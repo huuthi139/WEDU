@@ -49,31 +49,42 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // --- Affiliate: referral + wallet (non-blocking) ---
-    const refCode = request.cookies.get('wedu-ref')?.value;
-    if (refCode && newUser.id) {
+    // --- Generate ref_code for new user ---
+    if (newUser.id) {
       const supabase = getSupabaseAdmin();
       try {
-        // Verify referrer exists and is not self
-        const { data: referrer } = await supabase
-          .from('users').select('id').eq('id', refCode).single();
-        if (referrer && referrer.id !== newUser.id) {
-          // Insert referral (UNIQUE referee_id — first referrer wins, ignore duplicate)
-          await supabase.from('referrals').insert({
-            referrer_id: referrer.id,
-            referee_id: newUser.id,
-          }).select().maybeSingle();
-        }
-      } catch (refErr) {
-        logger.error('auth.register', 'Referral save failed', {
-          email, refCode,
-          error: refErr instanceof Error ? refErr.message : String(refErr),
+        await supabase.rpc('generate_ref_code').then(async ({ data: code }) => {
+          if (code) {
+            await supabase.from('users').update({ ref_code: code }).eq('id', newUser.id!);
+          }
         });
+      } catch {
+        // ref_code generation is best-effort
       }
-      // Create affiliate wallet for new user (always, even without referrer)
+
+      // --- Affiliate: referral + wallet ---
+      const refCookie = request.cookies.get('wedu-ref')?.value;
+      if (refCookie) {
+        try {
+          // Lookup referrer by ref_code (short code, not UUID)
+          const { data: referrer } = await supabase
+            .from('users').select('id').eq('ref_code', refCookie).single();
+          if (referrer && referrer.id !== newUser.id) {
+            await supabase.from('referrals').insert({
+              referrer_id: referrer.id,
+              referee_id: newUser.id,
+            }).select().maybeSingle();
+          }
+        } catch (refErr) {
+          logger.error('auth.register', 'Referral save failed', {
+            email, refCode: refCookie,
+            error: refErr instanceof Error ? refErr.message : String(refErr),
+          });
+        }
+      }
+      // Create affiliate wallet for new user (always)
       try {
-        const supabase2 = getSupabaseAdmin();
-        await supabase2.from('affiliate_wallets').upsert(
+        await supabase.from('affiliate_wallets').upsert(
           { user_id: newUser.id, balance: 0, total_earned: 0 },
           { onConflict: 'user_id' },
         );

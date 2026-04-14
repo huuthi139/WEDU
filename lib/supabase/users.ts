@@ -16,6 +16,7 @@ export interface SupabaseUser {
   avatar_url?: string | null;
   status?: string;
   must_change_password?: boolean;
+  ref_code?: string;
   created_at: string;
   updated_at: string;
 }

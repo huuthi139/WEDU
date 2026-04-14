@@ -30,8 +30,8 @@ export async function GET() {
     return NextResponse.json({ success: false, error: 'Wallet error' }, { status: 500 });
   }
 
-  // Get transactions + referral count in parallel
-  const [{ data: transactions }, { count: referralCount }] = await Promise.all([
+  // Get transactions + referral count + user ref_code in parallel
+  const [{ data: transactions }, { count: referralCount }, { data: userRow }] = await Promise.all([
     supabase
       .from('affiliate_transactions')
       .select('id, type, amount, order_id, description, paid, created_at')
@@ -42,6 +42,11 @@ export async function GET() {
       .from('referrals')
       .select('id', { count: 'exact', head: true })
       .eq('referrer_id', session.userId),
+    supabase
+      .from('users')
+      .select('ref_code')
+      .eq('id', session.userId)
+      .single(),
   ]);
 
   return NextResponse.json({
@@ -52,6 +57,6 @@ export async function GET() {
     },
     transactions: transactions || [],
     referralCount: referralCount || 0,
-    refCode: session.userId,
+    refCode: userRow?.ref_code || session.userId,
   });
 }

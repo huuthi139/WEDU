@@ -54,7 +54,7 @@ export default function AffiliatePage() {
     if (user) fetchData();
   }, [user, authLoading, router, fetchData]);
 
-  const refLink = data ? `${typeof window !== 'undefined' ? window.location.origin : ''}/?ref=${data.refCode}` : '';
+  const refLink = data ? `${typeof window !== 'undefined' ? window.location.origin : ''}/courses?ref=${data.refCode}` : '';
 
   const handleCopy = () => {
     navigator.clipboard.writeText(refLink);
