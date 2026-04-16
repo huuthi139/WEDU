@@ -17,7 +17,7 @@ export type AccessTier = 'free' | 'premium' | 'vip';
 export type LessonType = 'video' | 'text' | 'pdf' | 'audio' | 'quiz' | 'live' | 'replay' | 'image';
 
 /** Course access source */
-export type AccessSource = 'manual' | 'order' | 'gift' | 'admin' | 'scholarship' | 'system' | 'import';
+export type AccessSource = 'manual' | 'order' | 'gift' | 'admin' | 'scholarship' | 'system' | 'import' | 'api';
 
 /** Course access status */
 export type AccessStatus = 'active' | 'expired' | 'cancelled';
